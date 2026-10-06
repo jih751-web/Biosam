@@ -7,7 +7,7 @@
     return Array.from(files).map(file=>{
       const extension=file.name.split('.').pop().toLowerCase();
       if(!types[extension]||file.name.length>200)throw Error('첨부 파일 형식을 확인해 주세요. 사진·PDF·한글·Office 문서만 가능합니다.');
-      if(!Number.isFinite(file.size)||file.size<=0||file.size>10*1024*1024)throw Error('첨부 파일은 비어 있지 않은 10MB 이하 파일이어야 합니다.');
+      if(!Number.isFinite(file.size)||file.size<=0||file.size>50*1024*1024)throw Error('첨부 파일은 비어 있지 않은 50MB 이하 파일이어야 합니다.');
       return {file,extension,mime:types[extension]};
     });
   }

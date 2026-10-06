@@ -25,6 +25,15 @@ const meta=i=>db.query('insert into public.biosem_attachments(id,post_id,object_
 await check('other members cannot upload to another author folder',()=>as(bob,()=>assert.rejects(db.query("insert into storage.objects(bucket_id,name) values('biosem-files',$1)",[pathFor(1)]))));
 await check('unreserved uploads are rejected',()=>as(alice,()=>assert.rejects(db.query("insert into storage.objects(bucket_id,name) values('biosem-files',$1)",[pathFor(1)]))));
 await check('owner can reserve metadata then upload private attachment',()=>as(alice,async()=>{await meta(1);await db.query("insert into storage.objects(bucket_id,name) values('biosem-files',$1)",[pathFor(1)]);}));
+await check('database accepts 50MB and rejects one byte over',async()=>{
+  const aid='30000000-0000-4000-8000-000000000009',path=pathFor(9);
+  await as(alice,async()=>{
+    await assert.rejects(db.query("insert into public.biosem_attachments(id,post_id,object_path,filename,mime,bytes) values($1,$2,$3,'large.jpg','image/jpeg',52428801)",[aid,post,path]));
+    await db.query("insert into public.biosem_attachments(id,post_id,object_path,filename,mime,bytes) values($1,$2,$3,'large.jpg','image/jpeg',52428800)",[aid,post,path]);
+    await db.query('delete from public.biosem_attachments where id=$1',[aid]);
+  });
+  assert.equal(Number((await db.query("select file_size_limit from storage.buckets where id='biosem-files'")).rows[0].file_size_limit),52428800);
+});
 await check('draft attachments remain hidden from other members',()=>as(bob,async()=>{assert.equal((await db.query('select * from storage.objects')).rows.length,0);assert.equal((await db.query('select * from public.biosem_attachments')).rows.length,0);}));
 await check('sixth metadata and direct storage upload are rejected',()=>as(alice,async()=>{for(let i=2;i<=5;i++)await meta(i);await assert.rejects(meta(6));await assert.rejects(db.query("insert into storage.objects(bucket_id,name) values('biosem-files',$1)",[pathFor(6)]));}));
 await check('author can publish and approved readers can read',async()=>{await as(alice,()=>db.query('update public.biosem_posts set published=true where id=$1',[post]));await as(bob,async()=>{assert.equal((await db.query('select * from public.biosem_posts')).rows.length,1);assert.equal((await db.query('select * from storage.objects')).rows.length,1);});});

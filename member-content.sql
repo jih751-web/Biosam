@@ -20,7 +20,7 @@ create table public.biosem_attachments (
   object_path text not null unique,
   filename text not null check(char_length(filename) between 1 and 200),
   mime text not null check(mime in ('image/jpeg','image/png','image/webp','application/pdf','application/vnd.ms-powerpoint','application/vnd.openxmlformats-officedocument.presentationml.presentation','application/msword','application/vnd.openxmlformats-officedocument.wordprocessingml.document','application/vnd.ms-excel','application/vnd.openxmlformats-officedocument.spreadsheetml.sheet','application/x-hwp','application/vnd.hancom.hwpx')),
-  bytes bigint not null check(bytes between 1 and 10485760),
+  bytes bigint not null check(bytes between 1 and 52428800),
   created_at timestamptz not null default now()
 );
 create index biosem_attachments_post on public.biosem_attachments(post_id);
@@ -50,7 +50,7 @@ revoke all on function biosem_private.limit_attachments() from public,anon,authe
 create trigger biosem_attachments_limit before insert on public.biosem_attachments for each row execute function biosem_private.limit_attachments();
 
 insert into storage.buckets(id,name,public,file_size_limit,allowed_mime_types)
-values('biosem-files','biosem-files',false,10485760,array['image/jpeg','image/png','image/webp','application/pdf','application/vnd.ms-powerpoint','application/vnd.openxmlformats-officedocument.presentationml.presentation','application/msword','application/vnd.openxmlformats-officedocument.wordprocessingml.document','application/vnd.ms-excel','application/vnd.openxmlformats-officedocument.spreadsheetml.sheet','application/x-hwp','application/vnd.hancom.hwpx']);
+values('biosem-files','biosem-files',false,52428800,array['image/jpeg','image/png','image/webp','application/pdf','application/vnd.ms-powerpoint','application/vnd.openxmlformats-officedocument.presentationml.presentation','application/msword','application/vnd.openxmlformats-officedocument.wordprocessingml.document','application/vnd.ms-excel','application/vnd.openxmlformats-officedocument.spreadsheetml.sheet','application/x-hwp','application/vnd.hancom.hwpx']);
 create policy biosem_files_upload on storage.objects for insert to authenticated
   with check(bucket_id='biosem-files' and split_part(name,'/',1)=(select auth.uid())::text
     and name ~ '^[a-f0-9-]+/[a-f0-9-]+/[a-f0-9-]+\.(jpg|jpeg|png|webp|pdf|ppt|pptx|doc|docx|xls|xlsx|hwp|hwpx)$'
