@@ -5,6 +5,9 @@
   function escape(value){return String(value??'').replace(/[&<>"']/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));}
   function validateApplication(input){
     const fields={real_name:String(input.real_name??'').trim(),institution:String(input.institution??'').trim(),interest:String(input.interest??'').trim(),introduction:String(input.introduction??'').trim()};
+    const phone=String(input.phone??'').trim();
+    fields.phone=phone.replace(/[\s()-]/g,'');
+    if(!/^[0-9\s()-]+$/.test(phone)||!/^0[0-9]{8,10}$/.test(fields.phone))throw Error('전화번호를 확인해 주세요. 예: 010-1234-5678');
     if(fields.real_name.length<2||fields.real_name.length>40)throw Error('이름은 2~40자로 입력해 주세요.');
     if(fields.institution.length<2||fields.institution.length>100)throw Error('소속은 2~100자로 입력해 주세요.');
     if(!interests.includes(fields.interest))throw Error('관심 분야를 선택해 주세요.');

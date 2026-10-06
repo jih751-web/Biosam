@@ -1,6 +1,9 @@
 import assert from 'node:assert/strict';
 import core from './dist/membership-core.js';
-const good={real_name:'홍교사',institution:'생물고등학교',interest:'생물 수업 활용',introduction:'탐구 수업',consent:true};
+const good={real_name:'홍교사',institution:'생물고등학교',phone:'010-1234-5678',interest:'생물 수업 활용',introduction:'탐구 수업',consent:true};
+assert.equal(core.validateApplication(good).phone,'01012345678');
+for(const phone of ['', 'abc01012345678', '010123', '<script>', '9'.repeat(30)])assert.throws(()=>core.validateApplication({...good,phone}));
+assert.equal(core.validateApplication({...good,phone:'02-123-4567'}).phone,'021234567');
 const clean=core.validateApplication({...good,user_id:'someone-else',status:'approved',is_admin:true});
 assert.equal(clean.status,undefined);assert.equal(clean.user_id,undefined);assert.equal(clean.is_admin,undefined);
 assert.equal(clean.consent_version,'2026-10-06');

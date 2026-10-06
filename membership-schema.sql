@@ -48,6 +48,7 @@ create table public.biosem_memberships (
   user_id uuid primary key references auth.users(id) on delete cascade,
   real_name text not null check(char_length(btrim(real_name)) between 2 and 40),
   institution text not null check(char_length(btrim(institution)) between 2 and 100),
+  phone text not null check(phone ~ '^0[0-9]{8,10}$'),
   interest text not null check(char_length(btrim(interest)) between 2 and 80),
   introduction text not null default '' check(char_length(introduction) <= 500),
   consent_version text not null check(consent_version = '2026-10-06'),
@@ -61,7 +62,7 @@ create index biosem_memberships_queue on public.biosem_memberships(status,submit
 alter table public.biosem_memberships enable row level security;
 revoke all on public.biosem_memberships from public,anon,authenticated;
 grant select on public.biosem_memberships to authenticated;
-grant insert(user_id,real_name,institution,interest,introduction,consent_version) on public.biosem_memberships to authenticated;
+grant insert(user_id,real_name,institution,phone,interest,introduction,consent_version) on public.biosem_memberships to authenticated;
 grant update(status,review_note) on public.biosem_memberships to authenticated;
 create policy biosem_membership_read on public.biosem_memberships for select to authenticated
   using(user_id = (select auth.uid()) or (select biosem_private.is_admin()));

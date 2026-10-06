@@ -15,7 +15,7 @@ await db.query('insert into biosem_private.admins(user_id) values ($1)',[ids.adm
 let passed=0;
 async function as(id,fn,role='authenticated'){await db.exec(`set role ${role}`);await db.query("select set_config('request.jwt.claim.sub',$1,false),set_config('request.jwt.claims',$2,false)",[id||'',JSON.stringify({sub:id,is_anonymous:false})]);try{return await fn();}finally{await db.exec('reset role');}}
 async function check(name,fn){await fn();passed++;console.log('PASS '+name);}
-const apply=(id)=>db.query("insert into public.biosem_memberships(user_id,real_name,institution,interest,introduction,consent_version) values($1,'테스트 교사','테스트 학교','생물 수업 활용','관찰 수업 탐구','2026-10-06') returning *",[id]);
+const apply=(id)=>db.query("insert into public.biosem_memberships(user_id,real_name,institution,phone,interest,introduction,consent_version) values($1,'테스트 교사','테스트 학교','01012345678','생물 수업 활용','관찰 수업 탐구','2026-10-06') returning *",[id]);
 const write=(id,title='공동 탐구')=>db.query("insert into public.biosem_posts(author_id,category,title,body) values($1,'자유 나눔',$2,'질문을 함께 나눕니다.') returning *",[id,title]);
 const review=(id,from,to,note='')=>db.query('select public.biosem_review_member($1,$2,$3,$4)',[id,from,to,note]);
 await check('anonymous cannot read applications',()=>as(null,()=>assert.rejects(db.query('select * from public.biosem_memberships')), 'anon'));
@@ -26,7 +26,7 @@ await db.exec('update biosem_private.settings set accepting_applications=true');
 await check('unverified identity still rejected after gate opens',()=>as(ids.unverified,()=>assert.rejects(apply(ids.unverified))));
 await check('verified applicant starts pending',()=>as(ids.alice,async()=>{const r=await apply(ids.alice);assert.equal(r.rows[0].status,'pending');}));
 await check('identity spoofing is rejected',()=>as(ids.bob,()=>assert.rejects(apply(ids.unverified))));
-await check('applicant cannot set approval status on insert',()=>as(ids.bob,()=>assert.rejects(db.query("insert into public.biosem_memberships(user_id,real_name,institution,interest,consent_version,status) values($1,'타인','학교','관찰','2026-10-06','approved')",[ids.bob]))));
+await check('applicant cannot set approval status on insert',()=>as(ids.bob,()=>assert.rejects(db.query("insert into public.biosem_memberships(user_id,real_name,institution,phone,interest,consent_version,status) values($1,'타인','학교','01012345678','관찰','2026-10-06','approved')",[ids.bob]))));
 await check('applicant sees only own application',()=>as(ids.bob,async()=>{await apply(ids.bob);const r=await db.query('select user_id from public.biosem_memberships');assert.deepEqual(r.rows.map(x=>x.user_id),[ids.bob]);}));
 await check('self approval through direct update has no effect',()=>as(ids.alice,async()=>{const r=await db.query("update public.biosem_memberships set status='approved' where user_id=$1 returning status",[ids.alice]);assert.equal(r.rows.length,0);}));
 await check('self approval RPC is rejected',()=>as(ids.alice,()=>assert.rejects(review(ids.alice,'pending','approved'))));
@@ -46,8 +46,8 @@ await check('overlong or blank content rejected by database',()=>as(ids.alice,as
 await check('admin cannot change application ownership or timestamps',()=>as(ids.admin,async()=>{await assert.rejects(db.query('update public.biosem_memberships set user_id=$1 where user_id=$2',[ids.unverified,ids.alice]));await assert.rejects(db.query("update public.biosem_memberships set submitted_at=now() where user_id=$1",[ids.alice]));}));
 await check('non-admin cannot call paginated member directory',()=>as(ids.alice,()=>assert.rejects(db.query("select public.biosem_list_members('all','',0)"))));
 await db.exec(`insert into auth.users(id,email_confirmed_at) select ('20000000-0000-4000-8000-'||lpad(n::text,12,'0'))::uuid,now() from generate_series(1,102) n;
-insert into public.biosem_memberships(user_id,real_name,institution,interest,consent_version)
-select id,'예시 교사','검사 학교','생물 수업 활용','2026-10-06' from auth.users where id::text like '20000000-%';`);
+insert into public.biosem_memberships(user_id,real_name,institution,phone,interest,consent_version)
+select id,'예시 교사','검사 학교','01012345678','생물 수업 활용','2026-10-06' from auth.users where id::text like '20000000-%';`);
 await check('all old applications remain reachable beyond 100 users',()=>as(ids.admin,async()=>{const seen=new Set();for(let page=0;page<5;page++){const r=await db.query("select public.biosem_list_members('pending','', $1) as list",[page]);assert.equal(r.rows[0].list.total,102);assert.equal(r.rows[0].list.counts.pending,102);for(const row of r.rows[0].list.rows)seen.add(row.user_id);}assert.equal(seen.size,102);}));
 await check('directory search treats SQL syntax as literal text',()=>as(ids.admin,async()=>{const r=await db.query("select public.biosem_list_members('all',$1,0) as list",["%' OR 1=1 --"]);assert.equal(r.rows[0].list.total,0);await assert.rejects(db.query("select public.biosem_list_members('all','',-1)"));}));
 await check('removed admin loses review permission immediately',async()=>{await db.query('delete from biosem_private.admins where user_id=$1',[ids.admin]);await as(ids.admin,()=>assert.rejects(review(ids.alice,'approved','suspended','재확인 필요')));});
