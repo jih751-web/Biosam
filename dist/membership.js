@@ -110,6 +110,7 @@
     else if(['resources','activities','gallery'].includes(name)){
       const category={resources:'교육 자료',activities:'활동 기록',gallery:'SEM 갤러리'}[name];
       const section=selector('.page-body');if(!section)return;
+      if(name==='gallery'){await content.load(category,selector('#member-gallery-list'));return;}
       let block=selector('.member-private-board');
       if(!block){block=document.createElement('section');block.className='member-private-board';block.innerHTML='<div class="community-top"><h2>회원 '+e(category)+'</h2><button class="button small primary" data-content-category="'+e(category)+'">글·사진·자료 등록</button></div><div data-content-board id="member-'+name+'-list"></div>';section.prepend(block);}
       await loadPosts(category,block.querySelector('[data-content-board]'));

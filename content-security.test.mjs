@@ -13,12 +13,17 @@ create table storage.objects(id uuid default gen_random_uuid(),bucket_id text,na
 alter table storage.objects enable row level security; grant usage on schema storage to authenticated,anon; grant all on storage.objects to authenticated,anon;`);
 await db.exec(await readFile(new URL('./membership-schema.sql',import.meta.url),'utf8'));
 await db.exec(await readFile(new URL('./member-content.sql',import.meta.url),'utf8'));
+await db.exec(await readFile(new URL('./gallery-topics.sql',import.meta.url),'utf8'));
 for(const id of [alice,bob,pending]){await db.query('insert into auth.users(id,email_confirmed_at) values($1,now())',[id]);await db.query("insert into public.biosem_memberships(user_id,real_name,institution,phone,interest,consent_version,status) values($1,'검사 회원','검사 학교','01012345678','생물 수업 활용','2026-10-06',$2)",[id,id===pending?'pending':'approved']);}
 async function as(id,fn,role='authenticated'){await db.exec('set role '+role);await db.query("select set_config('request.jwt.claim.sub',$1,false)",[id||'']);try{return await fn();}finally{await db.exec('reset role');}}
 let count=0;async function check(name,fn){await fn();console.log('PASS '+name);count++;}
 const insert=(id,category,published=false)=>db.query("insert into public.biosem_posts(id,author_id,category,title,body,published) values($1,$2,$3,'검사 제목','검사 내용',$4)",[post,id,category,published]);
 await check('pending members cannot create gallery posts',()=>as(pending,()=>assert.rejects(insert(pending,'SEM 갤러리'))));
+await check('pending members cannot add topics',()=>as(pending,()=>assert.rejects(db.query("insert into public.biosem_gallery_topics(name) values('금지 주제')"))));
+await check('approved members share new topics',async()=>{await as(alice,()=>db.query("insert into public.biosem_gallery_topics(name) values('곤충')"));await as(bob,async()=>assert.equal((await db.query("select name from public.biosem_gallery_topics where name='곤충'")).rows.length,1));});
+await check('duplicate and blank topics rejected',()=>as(alice,async()=>{await assert.rejects(db.query("insert into public.biosem_gallery_topics(name) values('곤충')"));await assert.rejects(db.query("insert into public.biosem_gallery_topics(name) values(' ')"));}));
 await check('approved members create activity drafts',()=>as(alice,()=>insert(alice,'활동 기록')));
+await check('author assigns existing topic but unknown topic rejected',()=>as(alice,async()=>{await db.query("update public.biosem_posts set gallery_topic='곤충' where id=$1",[post]);await assert.rejects(db.query("update public.biosem_posts set gallery_topic='없는 주제' where id=$1",[post]));}));
 await check('other members cannot see or edit drafts',()=>as(bob,async()=>{assert.equal((await db.query('select * from public.biosem_posts')).rows.length,0);assert.equal((await db.query("update public.biosem_posts set title='위조 제목' returning id")).rows.length,0);}));
 const pathFor=i=>`${alice}/${post}/30000000-0000-4000-8000-${String(i).padStart(12,'0')}.jpg`;
 const meta=i=>db.query('insert into public.biosem_attachments(id,post_id,object_path,filename,mime,bytes) values($1,$2,$3,$4,$5,$6)',[`30000000-0000-4000-8000-${String(i).padStart(12,'0')}`,post,pathFor(i),'사진.jpg','image/jpeg',20]);

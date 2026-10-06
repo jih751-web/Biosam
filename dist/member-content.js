@@ -13,10 +13,25 @@
     function validate(fn){try{return fn();}catch(err){throw userError(err.message);}}
     async function requireMember(){await sync();if(!allowed()){await open(state.user?'account':'login');return false;}return true;}
     function showError(error){const el=$('#content-error');if(el){el.textContent=errorText(error);el.focus();}else notify(errorText(error));}
+    async function topicNames(){const r=await client().from('biosem_gallery_topics').select('name').order('name');if(r.error)throw r.error;return r.data.map(t=>t.name);}
+    function topicOptions(names,selected=''){return names.map(name=>`<option value="topic:${e(name)}"${name===selected?' selected':''}>${e(name)}</option>`).join('');}
     async function compose(category,post=null){
       if(!await requireMember())return;
       if(post&&post.author_id!==state.user.id&&!state.isAdmin)return;
       window.BioSEMUI.openModal(`<div class="modal-inner member-post-form"><div class="eyebrow">SHARE YOUR DISCOVERY</div><h2 id="modal-title">${post?'게시물 수정':e(category)+' 등록'}</h2><form id="content-form" data-post-id="${e(post?.id||'')}"><label class="form-field">메뉴·분류<select name="category">${c.categories.map(x=>`<option ${x===category?'selected':''}>${e(x)}</option>`).join('')}</select></label><label class="form-field">제목<input name="title" required minlength="2" maxlength="120" value="${e(post?.title||'')}"></label><label class="form-field">내용<textarea name="body" required minlength="2" maxlength="10000" placeholder="관찰 내용, 설명과 출처를 적어주세요.">${e(post?.body||'')}</textarea></label>${post?'<p class="preview-note">기존 첨부 파일은 유지됩니다. 제목·내용·분류를 수정할 수 있습니다.</p>':`<label class="form-field">사진·자료 첨부<input name="files" type="file" multiple accept="${Object.keys(c.types).map(x=>'.'+x).join(',')}"></label><p class="preview-note">최대 5개 · 파일당 50MB. JPG·PNG·WebP 사진, PDF·한글·Word·PowerPoint·Excel 문서를 올릴 수 있습니다.</p><ul id="content-file-list" class="attachment-selection"></ul>`}<p class="privacy-copy">승인된 회원에게만 공개됩니다. 공유 권한이 있는 자료만 올리고 학생·타인의 개인정보는 제거해 주세요.</p><div id="content-error" class="member-error" tabindex="-1" role="alert"></div><p id="content-progress" role="status" aria-live="polite"></p><button class="button primary wide" type="submit">${post?'수정 저장':'게시하기'}</button></form></div>`);
+      await prepareTopicFields(post);
+    }
+    function updateTopicFields(form){
+      const gallery=form.elements.category.value==='SEM 갤러리',select=form.elements.gallery_topic,input=form.elements.new_topic;
+      form.querySelector('#gallery-topic-fields').hidden=!gallery;select.required=gallery;
+      const adding=gallery&&select.value==='__new__';input.closest('label').hidden=!adding;input.required=adding;
+      form.querySelector('[type="submit"]').disabled=gallery&&form.dataset.topicsReady!=='true';
+    }
+    async function prepareTopicFields(post){
+      const form=$('#content-form');if(!form)return;
+      form.elements.category.closest('label').insertAdjacentHTML('afterend','<div id="gallery-topic-fields"><label class="form-field">사진 주제<select name="gallery_topic"><option value="">주제를 불러오는 중…</option></select></label><label class="form-field" hidden>새 주제 이름<input name="new_topic" maxlength="40" placeholder="예: 곤충, 꽃가루, 섬유"></label><p class="preview-note">새로 추가한 주제는 다른 회원도 선택할 수 있습니다.</p></div>');
+      updateTopicFields(form);
+      try{const names=await topicNames();if(!form.isConnected)return;form.elements.gallery_topic.innerHTML='<option value="">주제를 선택하세요</option>'+topicOptions(names,post?.gallery_topic)+'<option value="__new__">+ 새 주제 추가</option>';form.dataset.topicsReady='true';updateTopicFields(form);}catch(error){if(form.isConnected){form.elements.gallery_topic.innerHTML='<option value="">주제를 불러오지 못했습니다</option>';showError(userError('주제를 불러오지 못했습니다. 창을 닫고 다시 시도해 주세요.'));}}
     }
     async function save(form){
       if(busy)return;busy=true;
@@ -28,6 +43,16 @@
         const fields=validate(()=>c.validatePost(Object.fromEntries(data)));
         const files=id?[]:validate(()=>c.validateFiles(Array.from(form.elements.files.files)));
         const active=()=>authEpoch===start&&state.user?.id===actor&&allowed();
+        fields.gallery_topic=null;
+        if(fields.category==='SEM 갤러리'){
+          const selection=data.get('gallery_topic');
+          fields.gallery_topic=validate(()=>c.validateTopic(selection==='__new__'?data.get('new_topic'):String(selection||'').slice(6)));
+          if(selection==='__new__'){
+            const added=await client().from('biosem_gallery_topics').insert({name:fields.gallery_topic});
+            if(added.error&&added.error.code!=='23505')throw added.error;
+          }
+        }
+        if(!active())throw userError('로그인 상태가 바뀌었습니다. 다시 시도해 주세요.');
         if(id){const result=await client().from('biosem_posts').update(fields).eq('id',id).select('id').single();if(result.error)throw result.error;}
         else{
           draft=crypto.randomUUID();
@@ -51,24 +76,28 @@
         showError(error);
       }finally{busy=false;if(button.isConnected)button.disabled=false;}
     }
-    async function load(category,target,page=0){
+    async function load(category,target,page=0,topic=''){
       const key=target.id,token=Symbol(),start=epoch;loads.set(key,token);
       const active=()=>epoch===start&&loads.get(key)===token&&target.isConnected;
       await sync();if(!active())return;
-      if(!allowed()){target.innerHTML='<div class="empty-state compact"><h2>승인된 회원과 함께 나눕니다.</h2><p>회원이 등록한 글·사진·자료는 로그인과 가입 승인 후 볼 수 있습니다.</p><button class="button primary" data-member-action="'+(state.user?'account':'login')+'">'+(state.user?'내 회원 상태 확인':'로그인')+'</button></div>';return;}
+      const gallery=category==='SEM 갤러리',references=gallery&&page===0?window.BioSEMUI.galleryReferenceCards(topic==='__none__'?topic:topic.slice(6)):'';
+      if(!allowed()){target.innerHTML=(references?'<div class="content-grid member-gallery-grid">'+references+'</div>':'')+'<div class="empty-state compact"><h2>승인된 회원과 함께 나눕니다.</h2><p>회원이 등록한 글·사진·자료는 로그인과 가입 승인 후 볼 수 있습니다.</p><button class="button primary" data-member-action="'+(state.user?'account':'login')+'">'+(state.user?'내 회원 상태 확인':'로그인')+'</button></div>';return;}
+      if(gallery){try{const names=await topicNames();if(!active())return;const filter=$('#gallery-topic-filter');if(filter){filter.innerHTML='<option value="">전체</option>'+topicOptions(names,topic.slice(6))+'<option value="__none__">미분류</option>';filter.value=topic;}}catch{if(active())notify('주제 목록을 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.');}}
+      if(!active()||!allowed()||!state.user)return;
       const actor=state.user.id;target.innerHTML='<p class="member-loading">게시물을 불러오고 있습니다.</p>';
-      const r=await client().from('biosem_posts').select('id,title,category,created_at,published,biosem_attachments(id,object_path,mime,filename,bytes)').eq('category',category).order('created_at',{ascending:false}).order('id',{ascending:false}).range(page*20,page*20+20);
+      let query=client().from('biosem_posts').select('id,title,category,created_at,published,gallery_topic,biosem_attachments(id,object_path,mime,filename,bytes)').eq('category',category);
+      if(gallery&&topic)query=topic==='__none__'?query.is('gallery_topic',null):query.eq('gallery_topic',topic.slice(6));
+      const r=await query.order('created_at',{ascending:false}).order('id',{ascending:false}).range(page*20,page*20+20);
       if(!active()||state.user?.id!==actor||!allowed())return;
-      if(r.error){target.innerHTML='<div class="member-error">게시물을 불러오지 못했습니다.</div>';return;}
+      if(r.error){target.innerHTML=(references?'<div class="content-grid member-gallery-grid">'+references+'</div>':'')+'<div class="member-error">게시물을 불러오지 못했습니다.</div>';return;}
       const rows=r.data.slice(0,20),hasNext=r.data.length>20;
-      const gallery=category==='SEM 갤러리';
-      target.innerHTML=rows.length?'<div class="content-grid'+(gallery?' member-gallery-grid':'')+'">'+rows.map(p=>{
+      target.innerHTML=rows.length||references?'<div class="content-grid'+(gallery?' member-gallery-grid':'')+'">'+rows.map(p=>{
         const hasPhoto=p.biosem_attachments.some(a=>a.mime.startsWith('image/'));
         if(gallery)return `<button class="content-card member-gallery-card" data-member-post="${e(p.id)}" aria-label="${e(p.title)} 자세히 보기"><span class="sr-only">${e(p.title)}</span><div class="content-thumbnail" data-thumbnail="${e(p.id)}"><span class="gallery-image-status">${hasPhoto?'사진을 불러오는 중…':'첨부 사진 없음 · 눌러서 내용 보기'}</span></div>${p.published?'':'<span class="gallery-draft-label">업로드 미완료</span>'}</button>`;
         return `<button class="content-card" data-member-post="${e(p.id)}">${hasPhoto?`<div class="content-thumbnail" data-thumbnail="${e(p.id)}"></div>`:''}<span class="community-tag">${e(p.category)}</span><h3>${e(p.title)}</h3><span class="post-meta">${date(p.created_at)} · 첨부 ${p.biosem_attachments.length}개${p.published?'':' · 업로드 미완료'}</span></button>`;
-      }).join('')+'</div>':'<div class="empty-state compact"><h2>첫 번째 기록을 남겨보세요.</h2><p>아직 등록된 게시물이 없습니다.</p></div>';
+      }).join('')+references+'</div>':'<div class="empty-state compact"><h2>첫 번째 기록을 남겨보세요.</h2><p>아직 등록된 게시물이 없습니다.</p></div>';
       const pager=document.createElement('div');pager.className='member-actions';
-      for(const [label,next,enabled] of [['이전',page-1,page>0],['다음',page+1,hasNext]]){const b=document.createElement('button');b.className='button small';b.textContent=label;b.disabled=!enabled;b.addEventListener('click',()=>load(category,target,next));pager.append(b);}if(page>0||hasNext)target.append(pager);
+      for(const [label,next,enabled] of [['이전',page-1,page>0],['다음',page+1,hasNext]]){const b=document.createElement('button');b.className='button small';b.textContent=label;b.disabled=!enabled;b.addEventListener('click',()=>load(category,target,next,topic));pager.append(b);}if(page>0||hasNext)target.append(pager);
       for(const p of rows){const first=p.biosem_attachments.find(a=>a.mime.startsWith('image/'));if(!first)continue;const result=await bucket().download(first.object_path);if(!active()||!allowed()||state.user?.id!==actor)return;const holder=target.querySelector(`[data-thumbnail="${p.id}"]`);if(!holder)continue;const status=holder.querySelector('.gallery-image-status');if(result.error){if(status)status.textContent='사진을 불러오지 못했습니다 · 눌러서 다시 보기';continue;}const img=document.createElement('img');img.onload=()=>status?.remove();img.onerror=()=>{img.remove();if(status)status.textContent='사진을 표시하지 못했습니다 · 눌러서 내용 보기';};img.src=blobUrl(result.data);img.alt=p.title;img.loading='lazy';holder.append(img);}
     }
     async function show(id){
@@ -79,6 +108,7 @@
       if(r.error||!r.data){notify('게시물을 확인할 수 없습니다.');return;}const post=r.data;
       window.BioSEMUI.openModal(`<article class="article-content"><div class="eyebrow">${e(post.category)}</div><h2 id="modal-title">${e(post.title)}</h2><p class="review-detail">${date(post.created_at)} · 승인 회원 공개</p><div class="member-post-copy">${e(post.body)}</div><div id="content-attachments" class="content-attachments"></div>${post.author_id===actor||state.isAdmin?'<div class="member-actions"><button class="button" id="content-edit">수정</button><button class="button danger" id="content-delete">삭제</button></div>':''}<div id="content-error" class="member-error" tabindex="-1" role="alert"></div></article>`,'article-modal');
       const view=$('#content-attachments');
+      if(post.category==='SEM 갤러리'){const topic=document.createElement('p');topic.className='review-detail';topic.textContent='주제 · '+(post.gallery_topic||'미분류');$('#modal-title').after(topic);}
       if(!post.published){const note=document.createElement('p');note.className='member-error';note.textContent='업로드 미완료 게시물입니다. 다른 회원에게 공개되지 않습니다. 삭제한 뒤 다시 등록해 주세요.';view.before(note);$('#content-edit')?.remove();}
       if($('#content-edit'))$('#content-edit').onclick=()=>compose(post.category,post);
       if($('#content-delete'))$('#content-delete').onclick=()=>confirmDelete(post);
@@ -95,6 +125,10 @@
       $('#content-delete-confirm').onclick=async event=>{event.target.disabled=true;try{if(!await requireMember())return;const paths=post.biosem_attachments.map(a=>a.object_path);if(paths.length){const removed=await bucket().remove(paths);if(removed.error)throw removed.error;}const result=await client().from('biosem_posts').delete().eq('id',post.id).select('id').single();if(result.error)throw result.error;window.BioSEMUI.closeModal();notify('게시물을 삭제했습니다.');await refresh();}catch(err){showError(err);event.target.disabled=false;}};
     }
     document.addEventListener('submit',event=>{if(event.target.id==='content-form'){event.preventDefault();save(event.target);}});
+    document.addEventListener('change',event=>{
+      if(event.target.id==='gallery-topic-filter'){const target=$('#member-gallery-list');if(target)load('SEM 갤러리',target,0,event.target.value);}
+      if(event.target.form?.id==='content-form'&&['category','gallery_topic'].includes(event.target.name))updateTopicFields(event.target.form);
+    });
     document.addEventListener('change',event=>{if(event.target.name!=='files'||event.target.form?.id!=='content-form')return;const list=$('#content-file-list');list.innerHTML='';try{const files=validate(()=>c.validateFiles(Array.from(event.target.files)));for(const item of files){const li=document.createElement('li');li.textContent=item.file.name;list.append(li);}$('#content-error').textContent='';}catch(err){showError(err);}});
     return {compose,load,show,invalidate,invalidateAuth};
   };

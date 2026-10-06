@@ -10,3 +10,6 @@ assert.throws(()=>core.validatePost({category:'공지사항',title:'제목',body
 assert.throws(()=>core.validatePost({category:'SEM 갤러리',title:' ',body:'내용'}));
 assert.equal(core.destination('SEM 갤러리'),'gallery');
 console.log('PASS attachment limits, file types, and menu validation');
+assert.equal(core.validateTopic('  꽃가루  '),'꽃가루');
+assert.throws(()=>core.validateTopic(' '));
+assert.throws(()=>core.validateTopic('가'.repeat(41)));

@@ -16,12 +16,12 @@ try{
   page.on('pageerror',e=>errors.push(e.message));
   await page.route('https://**',route=>route.abort());
   await page.route('**/supabase-2.117.2.js',route=>route.fulfill({contentType:'text/javascript',body:`
-    window.testStatus='approved';window.testPosts=[];window.testAttachments=[];window.testFiles={};
+    window.testStatus='approved';window.testPosts=[];window.testAttachments=[];window.testFiles={};window.testTopics=[{name:'식물'},{name:'미생물'},{name:'기타'}];
     const actor='10000000-0000-4000-8000-000000000001';
     const makeQuery=table=>{let method='select',data,filters=[],single=false,range;
       const q={select(){return q},insert(d){method='insert';data=d;return q},update(d){method='update';data=d;return q},delete(){method='delete';return q},eq(k,v){filters.push([k,v]);return q},order(){return q},limit(){return q},range(a,b){range=[a,b];return q},single(){single=true;return q},maybeSingle(){single=true;return q},then(ok,fail){try{
         if(table==='biosem_memberships')return new Promise(resolve=>setTimeout(()=>resolve({data:{status:window.testStatus,real_name:'검사 회원',institution:'검사 학교',phone:'01012345678'},error:null}),window.testSlowSync?150:0)).then(ok,fail);
-        let rows=table==='biosem_posts'?window.testPosts:window.testAttachments;
+        let rows=table==='biosem_gallery_topics'?window.testTopics:table==='biosem_posts'?window.testPosts:window.testAttachments;
         const matches=x=>filters.every(([k,v])=>x[k]===v);
         let output;
         if(method==='insert'){const row={...data,created_at:new Date().toISOString()};rows.push(row);output=[row];}
@@ -30,7 +30,7 @@ try{
         else output=rows.filter(matches);
         output=output.map(x=>table==='biosem_posts'?{...x,biosem_attachments:window.testAttachments.filter(a=>a.post_id===x.id)}:{...x});if(range)output=output.slice(range[0],range[1]+1);
         return Promise.resolve({data:single?output[0]:output,error:null}).then(ok,fail);
-      }catch(err){return Promise.reject(err).then(ok,fail);}}};return q;};
+      }catch(err){return Promise.reject(err).then(ok,fail);}}};q.is=(k,v)=>{filters.push([k,v]);return q;};return q;};
     window.supabase={createClient:()=>({from:makeQuery,rpc:async()=>({data:false,error:null}),auth:{getUser:async()=>({data:{user:{id:actor,email:'test@example.invalid',email_confirmed_at:new Date().toISOString()}}}),onAuthStateChange(fn){window.testAuthChange=fn;},signOut:async()=>({error:null})},storage:{from:()=>({upload:async(path,file)=>{if(window.testRefreshDuringUpload){window.testRefreshDuringUpload=false;window.testSlowSync=true;window.testAuthChange('TOKEN_REFRESHED');await new Promise(r=>setTimeout(r,30));}if(window.testFailUpload&&file.name==='fail.pdf')return {error:{message:'upload failed'}};window.testFiles[path]=file;return {data:{path},error:null};},download:async(path)=>({data:window.testFiles[path]||null,error:window.testFiles[path]?null:{message:'Not found'}}),remove:async(paths)=>{if(window.testFailCleanup)return {error:{message:'cleanup failed'}};paths.forEach(p=>delete window.testFiles[p]);return {data:paths,error:null};}})}})};
   `}));
   await page.goto(base+'/#/activities');
@@ -40,6 +40,7 @@ try{
     await button.click();await page.locator('#content-form').waitFor();
     await page.locator('#content-form [name="title"]').fill(category+' 검사 제목');
     await page.locator('#content-form [name="body"]').fill('사진과 자료를 나누는 검사 내용입니다.');
+    if(menu==='gallery'){await page.locator('[name="gallery_topic"]').selectOption('__new__');await page.locator('[name="new_topic"]').fill('곤충');}
     if(menu==='gallery')await page.evaluate(()=>window.testRefreshDuringUpload=true);
     if(menu==='gallery')await page.locator('[name="files"]').setInputFiles([{name:'관찰.png',mimeType:'image/png',buffer:Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/l9sAAAAASUVORK5CYII=','base64')},{name:'활동지.pdf',mimeType:'application/pdf',buffer:Buffer.from('%PDF-1.4\n%%EOF')}]);
     await page.locator('#content-form [type="submit"]').click();
@@ -47,6 +48,20 @@ try{
     console.log('PASS '+category+' 게시 및 메뉴 표시');
   }
   await page.evaluate(()=>location.hash='#/gallery');
+  await page.locator('#gallery-topic-filter option[value="topic:곤충"]').waitFor({state:'attached'});
+  assert.equal(await page.locator('#member-gallery-list .member-gallery-grid').count(),1);
+  assert.equal(await page.locator('#member-gallery-list [data-image]').count(),3);
+  await page.locator('#gallery-topic-filter').selectOption('topic:식물');
+  await page.waitForFunction(()=>document.querySelectorAll('#member-gallery-list [data-image]').length===2&&document.querySelectorAll('#member-gallery-list [data-member-post]').length===0);
+  await page.locator('#gallery-topic-filter').selectOption('topic:곤충');
+  await page.waitForFunction(()=>document.querySelectorAll('#member-gallery-list [data-image]').length===0&&document.querySelectorAll('#member-gallery-list [data-member-post]').length===1);
+  await page.evaluate(()=>window.testPosts.push({id:'old-gallery',category:'SEM 갤러리',title:'기존 미분류 사진',body:'기존 내용',gallery_topic:null,created_at:new Date().toISOString(),published:true}));
+  await page.locator('#gallery-topic-filter').selectOption('__none__');
+  await page.getByRole('button',{name:'기존 미분류 사진 자세히 보기'}).waitFor();
+  assert.equal(await page.locator('#member-gallery-list [data-image]').count(),0);
+  await page.evaluate(()=>window.testPosts=window.testPosts.filter(p=>p.id!=='old-gallery'));
+  await page.locator('#gallery-topic-filter').selectOption('');
+  console.log('PASS 공용 주제 추가·선택, 참고 사진 통합 필터, 기존 글 미분류');
   const galleryCard=page.getByRole('button',{name:'SEM 갤러리 검사 제목 자세히 보기',exact:true});
   await galleryCard.locator('img').waitFor();
   assert.equal(await galleryCard.locator('h3,.community-tag,.post-meta').count(),0);
@@ -66,13 +81,14 @@ try{
   await page.locator('#content-edit').click();await page.locator('#content-form [name="title"]').fill('수정된 사진 기록');await page.locator('#content-form [type="submit"]').click();
   await page.locator('.content-card').filter({hasText:'수정된 사진 기록'}).click();
   await page.locator('#content-delete').click();await page.locator('#content-delete-confirm').click();
-  await page.getByRole('heading',{name:'첫 번째 기록을 남겨보세요.'}).waitFor();
+  await page.waitForFunction(()=>!document.querySelector('#modal[open]')&&document.querySelectorAll('#member-gallery-list [data-member-post]').length===0);
   assert.equal(await page.evaluate(()=>Object.keys(window.testFiles).length),0);
   console.log('PASS 사진 미리보기, 파일 다운로드, 본인 수정·삭제');
   await page.evaluate(()=>{window.testFailUpload=true;window.testFailCleanup=true;});
   await page.locator('[data-content-category]').click();
   await page.locator('#content-form [name="title"]').fill('미완료 업로드 검사');
   await page.locator('#content-form [name="body"]').fill('실패 복구 검증입니다.');
+  await page.locator('[name="gallery_topic"]').selectOption('topic:곤충');
   await page.locator('[name="files"]').setInputFiles([{name:'ok.pdf',mimeType:'application/pdf',buffer:Buffer.from('%PDF-1.4\n%%EOF')},{name:'fail.pdf',mimeType:'application/pdf',buffer:Buffer.from('%PDF-1.4\n%%EOF')}]);
   await page.locator('#content-form [type="submit"]').click();
   await page.locator('#content-error').filter({hasText:'미완료 게시물이 남아 있습니다'}).waitFor();
@@ -84,7 +100,7 @@ try{
   await page.evaluate(()=>location.hash='#/gallery');
   await page.locator('.content-card').filter({hasText:'미완료 업로드 검사'}).click();
   await page.locator('#content-delete').click();await page.locator('#content-delete-confirm').click();
-  await page.getByRole('heading',{name:'첫 번째 기록을 남겨보세요.'}).waitFor();
+  await page.waitForFunction(()=>!document.querySelector('#modal[open]')&&document.querySelectorAll('#member-gallery-list [data-member-post]').length===0);
   assert.equal(await page.evaluate(()=>Object.keys(window.testFiles).length),0);
   console.log('PASS 토큰 갱신 중 업로드 유지, 정리 실패 시 비공개 초안 보존 및 삭제 재시도');
   await page.setViewportSize({width:390,height:844});
