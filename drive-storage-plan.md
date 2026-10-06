@@ -33,4 +33,4 @@
 - Auth/navigation races, legacy attachments and documents stay functional.
 
 ## Current prerequisites
-Owner OAuth and Vercel configuration are complete. Confirm OAuth publishing status: a token issued in Testing can expire after seven days; reauthorize after switching to Production. Secrets are only in the central local secret file and Vercel Production variables.
+Owner OAuth and Vercel configuration are complete. On 2026-10-06 the owner reported publishing the OAuth app, reauthorized, and the new Production refresh token passed the real Drive upload/read/delete check. Existing folder and encryption key preserved. Secrets are only in the central local secret file and Vercel Production variables.
