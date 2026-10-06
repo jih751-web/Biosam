@@ -18,6 +18,7 @@ drive-storage.sql
 drive-storage-plan.md
 drive-storage-setup.md
 drive-oauth-setup.mjs
+drive-live-check.mjs
 client_secret*.json
 credentials*.json
 .env

@@ -34,6 +34,8 @@ Vercel **Production 전용** 비밀 환경변수: GOOGLE_DRIVE_CLIENT_ID, GOOGLE
 - 문서 및 기존 Supabase 사진은 기존 방식으로 유지합니다. 사진 원본 다운로드 버튼은 제공하지 않습니다.
 - 게시글 삭제 시 Drive 파일을 먼저 정리하며 실패하면 기록을 남겨 재시도합니다. 업로드 실패 시 비공개 초안을 삭제해 정리할 수 있습니다.
 
-현재 상태: 코드 구현과 로컬 단위·권한·실제 브라우저 검증 완료. 브라우저 검증은 Google 서버를 대신하는 테스트 응답을 사용했습니다. 소유자 OAuth, 운영 DB 마이그레이션, Vercel 환경변수·배포, 실제 Drive 전송 검증은 아직 하지 않았습니다. `photoStorage`는 `supabase`로 유지합니다.
+현재 상태(2026-10-06): 소유자 OAuth, 운영 DB 마이그레이션과 Vercel Production 비밀 환경변수 등록 완료. `drive-live-check.mjs`에서 실제 Google Drive 원본·WebP 업로드, 비공개 권한, 축소 이미지 조회, 원본 조회 차단 및 테스트 파일 3개 삭제를 확인했습니다. 이 검사의 회원 인증·메타데이터만 메모리 모형을 사용하며 운영 회원 인증 검증과 구별합니다. 로컬 권한·브라우저 회귀 검사도 통과했습니다. `photoStorage`를 `drive`로 전환했으며 운영 배포를 준비합니다.
+
+남은 운영 설정: Google OAuth 게시 상태를 확인해야 합니다. Testing에서 발급된 갱신 토큰은 일반적으로 7일 후 만료되므로 Production 전환 후 같은 로컬 도구로 재승인하고, 기존 폴더·암호화 키를 유지하면서 Vercel 갱신 토큰을 교체·재배포합니다.
 
 공식 설정 참고: [Google 데스크톱 OAuth 안내](https://developers.google.com/identity/protocols/oauth2/native-app), [Google Drive API 활성화](https://console.cloud.google.com/apis/library/drive.googleapis.com).

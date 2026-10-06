@@ -19,10 +19,11 @@
 ## Tasks
 - [x] Backend + mocked API security tests (api/drive.mjs, drive-server.mjs, drive-server.test.mjs).
 - [x] Browser image resizing/chunk upload helper + tests (dist/drive-photos.js, drive-photos.test.mjs).
-- [x] Attachment schema, main content integration, conditional privacy copy, regression tests (local schema only; live migration pending).
+- [x] Attachment schema, main content integration, conditional privacy copy, regression tests. Live migration `biosem_drive_photo_storage` applied on 2026-10-06.
 - [x] Local OAuth setup helper, deployment environment names, account verification logic, setup guide. Actual owner authorization remains pending.
 - [x] Review and local unit/security/browser checks.
-- [ ] Git branch push. Apply additive schema/deploy only coherent tested version. Drive enablement requires owner authorization; no claim of live transfer before verified upload.
+- [x] Owner authorization, Production-only sensitive environment variables, real private Drive upload/preview/delete verification (isolated membership mock; actual Google API).
+- [ ] Production deployment and deployed endpoint checks.
 
 ## Review focus
 - Pending/suspended cannot mutate public photos; anonymous sees opted-in photos only.
@@ -32,4 +33,4 @@
 - Auth/navigation races, legacy attachments and documents stay functional.
 
 ## Current prerequisites
-Vercel has no environment variables. Google Cloud owner access and OAuth client credentials are not yet provided. Do not activate the Drive path until configuration is complete.
+Owner OAuth and Vercel configuration are complete. Confirm OAuth publishing status: a token issued in Testing can expire after seven days; reauthorize after switching to Production. Secrets are only in the central local secret file and Vercel Production variables.
