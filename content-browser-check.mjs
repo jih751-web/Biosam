@@ -47,8 +47,20 @@ try{
     console.log('PASS '+category+' 게시 및 메뉴 표시');
   }
   await page.evaluate(()=>location.hash='#/gallery');
+  const galleryCard=page.getByRole('button',{name:'SEM 갤러리 검사 제목 자세히 보기',exact:true});
+  await galleryCard.locator('img').waitFor();
+  assert.equal(await galleryCard.locator('h3,.community-tag,.post-meta').count(),0);
+  assert.ok((await galleryCard.boundingBox()).width>450);
+  assert.ok((await galleryCard.boundingBox()).height>300);
+  await page.setViewportSize({width:390,height:844});
+  assert.ok((await galleryCard.boundingBox()).width>300);
+  assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
+  await page.screenshot({path:'content-mobile-check.png',fullPage:true});
+  await page.setViewportSize({width:1280,height:900});
   await page.locator('.content-card').filter({hasText:'SEM 갤러리 검사 제목'}).click();
   await page.locator('.content-image').waitFor();
+  assert.equal(await page.locator('.member-post-copy').textContent(),'사진과 자료를 나누는 검사 내용입니다.');
+  console.log('PASS 갤러리 큰 사진 전용 카드, 모바일 배치, 클릭 후 설명 표시');
   assert.equal(await page.locator('.content-attachment').count(),2);
   const download=page.waitForEvent('download');await page.getByRole('button',{name:/활동지.pdf.*다운로드/}).click();assert.equal((await download).suggestedFilename(),'활동지.pdf');
   await page.locator('#content-edit').click();await page.locator('#content-form [name="title"]').fill('수정된 사진 기록');await page.locator('#content-form [type="submit"]').click();
