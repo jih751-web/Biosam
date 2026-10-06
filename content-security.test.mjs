@@ -15,6 +15,7 @@ await db.exec(await readFile(new URL('./membership-schema.sql',import.meta.url),
 await db.exec(await readFile(new URL('./member-content.sql',import.meta.url),'utf8'));
 await db.exec(await readFile(new URL('./gallery-topics.sql',import.meta.url),'utf8'));
 await db.exec(await readFile(new URL('./activity-portfolio.sql',import.meta.url),'utf8'));
+await db.exec(await readFile(new URL('./drive-storage.sql',import.meta.url),'utf8'));
 for(const id of [alice,bob,pending]){await db.query('insert into auth.users(id,email_confirmed_at) values($1,now())',[id]);await db.query("insert into public.biosem_memberships(user_id,real_name,institution,phone,interest,consent_version,status) values($1,'검사 회원','검사 학교','01012345678','생물 수업 활용','2026-10-06',$2)",[id,id===pending?'pending':'approved']);}
 async function as(id,fn,role='authenticated'){await db.exec('set role '+role);await db.query("select set_config('request.jwt.claim.sub',$1,false)",[id||'']);try{return await fn();}finally{await db.exec('reset role');}}
 let count=0;async function check(name,fn){await fn();console.log('PASS '+name);count++;}
@@ -31,6 +32,11 @@ const meta=i=>db.query('insert into public.biosem_attachments(id,post_id,object_
 await check('other members cannot upload to another author folder',()=>as(bob,()=>assert.rejects(db.query("insert into storage.objects(bucket_id,name) values('biosem-files',$1)",[pathFor(1)]))));
 await check('unreserved uploads are rejected',()=>as(alice,()=>assert.rejects(db.query("insert into storage.objects(bucket_id,name) values('biosem-files',$1)",[pathFor(1)]))));
 await check('owner can reserve metadata then upload private attachment',()=>as(alice,async()=>{await meta(1);await db.query("insert into storage.objects(bucket_id,name) values('biosem-files',$1)",[pathFor(1)]);}));
+await check('only draft owner can update encrypted Drive reference',async()=>{
+  await as(alice,()=>db.query("update public.biosem_attachments set storage_provider='drive',drive_ref='encrypted-test' returning id"));
+  await as(bob,async()=>assert.equal((await db.query("update public.biosem_attachments set drive_ref='tamper' returning id")).rows.length,0));
+  await as(alice,()=>db.query("update public.biosem_attachments set storage_provider='supabase',drive_ref=null"));
+});
 await check('database accepts 50MB and rejects one byte over',async()=>{
   const aid='30000000-0000-4000-8000-000000000009',path=pathFor(9);
   await as(alice,async()=>{
@@ -44,6 +50,7 @@ await check('draft attachments remain hidden from other members',()=>as(bob,asyn
 await check('sixth metadata and direct storage upload are rejected',()=>as(alice,async()=>{for(let i=2;i<=5;i++)await meta(i);await assert.rejects(meta(6));await assert.rejects(db.query("insert into storage.objects(bucket_id,name) values('biosem-files',$1)",[pathFor(6)]));}));
 await check('author can publish and approved readers can read',async()=>{await as(alice,()=>db.query('update public.biosem_posts set published=true where id=$1',[post]));await as(bob,async()=>{assert.equal((await db.query('select * from public.biosem_posts')).rows.length,1);assert.equal((await db.query('select * from storage.objects')).rows.length,1);});});
 await check('published post rejects unexpected extra uploads',()=>as(alice,()=>assert.rejects(db.query("insert into storage.objects(bucket_id,name) values('biosem-files',$1)",[pathFor(7)]))));
+await check('published attachments reject encrypted reference changes',()=>as(alice,async()=>assert.equal((await db.query("update public.biosem_attachments set drive_ref='tamper' returning id")).rows.length,0)));
 await check('pending readers cannot download attachments',()=>as(pending,async()=>assert.equal((await db.query('select * from storage.objects')).rows.length,0)));
 await check('anonymous cannot read member files',()=>as(null,async()=>assert.equal((await db.query('select * from storage.objects')).rows.length,0),'anon'));
 await check('activity date accepts leap day and rejects invalid dates',()=>as(alice,async()=>{await db.query("update public.biosem_posts set activity_date='2024-02-29' where id=$1",[post]);await assert.rejects(db.query("update public.biosem_posts set activity_date='2025-02-29' where id=$1",[post]));}));

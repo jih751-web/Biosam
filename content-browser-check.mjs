@@ -15,6 +15,34 @@ try{
   const page=await browser.newPage({viewport:{width:1280,height:900}}),errors=[];
   page.on('pageerror',e=>errors.push(e.message));
   await page.route('https://**',route=>route.abort());
+  const driveUploads=new Map(),driveCalls=[],driveDeletes=[],mediaVariants=[];
+  await page.route('**/config.js',async route=>route.fulfill({contentType:'text/javascript',body:(await readFile(resolve(root,'config.js'),'utf8')).replace("photoStorage: 'supabase'","photoStorage: 'drive'")}));
+  await page.route('**/api/drive?*',async route=>{
+    const request=route.request(),url=new URL(request.url()),action=url.searchParams.get('action');
+    driveCalls.push(action);
+    if(action==='status')return route.fulfill({json:{configured:true}});
+    assert.equal(request.headers().authorization,'Bearer browser-session');
+    if(action==='init'){
+      const data=request.postDataJSON();driveUploads.set(data.attachmentId,{...data,original:[],display:[],thumb:[]});
+      return route.fulfill({json:{sessions:Object.fromEntries(['original','display','thumb'].map(variant=>[variant,{ticket:data.attachmentId+':'+variant}]))}});
+    }
+    if(action==='chunk'){
+      const [id,variant]=request.headers()['x-upload-ticket'].split(':'),chunks=driveUploads.get(id)[variant],body=request.postDataBuffer();
+      assert.ok(body.length<=1024*1024);assert.equal(Number(request.headers()['x-upload-offset']),chunks.reduce((sum,chunk)=>sum+chunk.length,0));chunks.push(body);
+      return route.fulfill({json:{complete:true}});
+    }
+    if(action==='complete'){
+      const upload=driveUploads.get(request.postDataJSON().attachmentId);
+      assert.equal(Buffer.concat(upload.display).length,upload.displayBytes);assert.equal(Buffer.concat(upload.thumb).length,upload.thumbBytes);
+      return route.fulfill({json:{complete:true}});
+    }
+    if(action==='media'){
+      const variant=url.searchParams.get('variant');assert.ok(['thumb','display'].includes(variant));mediaVariants.push(variant);
+      return route.fulfill({contentType:'image/webp',body:Buffer.concat(driveUploads.get(url.searchParams.get('id'))[variant])});
+    }
+    if(action==='delete'){const id=request.postDataJSON().attachmentId;driveDeletes.push(id);driveUploads.delete(id);return route.fulfill({json:{deleted:true}});}
+    throw new Error('Unexpected Drive action: '+action);
+  });
   await page.route('**/supabase-2.117.2.js',route=>route.fulfill({contentType:'text/javascript',body:`
     window.testStatus='approved';window.testPosts=[];window.testAttachments=[];window.testFiles={};window.testTopics=[{name:'식물'},{name:'미생물'},{name:'기타'}];
     const actor='10000000-0000-4000-8000-000000000001';
@@ -26,14 +54,20 @@ try{
         let output;
         if(method==='insert'){const row={...data,created_at:new Date().toISOString()};rows.push(row);output=[row];}
         else if(method==='update'){output=rows.filter(matches);output.forEach(x=>Object.assign(x,data));}
-        else if(method==='delete'){output=rows.filter(matches);const kept=rows.filter(x=>!matches(x));if(table==='biosem_posts')window.testPosts=kept;else window.testAttachments=kept;}
+        else if(method==='delete'){output=rows.filter(matches);const kept=rows.filter(x=>!matches(x));if(table==='biosem_posts'){window.testPosts=kept;window.testAttachments=window.testAttachments.filter(a=>!output.some(p=>p.id===a.post_id));}else window.testAttachments=kept;}
         else output=rows.filter(matches);
         output=output.map(x=>table==='biosem_posts'?{...x,biosem_attachments:window.testAttachments.filter(a=>a.post_id===x.id)}:{...x});output.sort((a,b)=>{for(const [k,o] of orders){if(a[k]===b[k])continue;if(a[k]==null)return o.nullsFirst?-1:1;if(b[k]==null)return o.nullsFirst?1:-1;return (a[k]<b[k]?-1:1)*(o.ascending?1:-1);}return 0;});if(range)output=output.slice(range[0],range[1]+1);
         return Promise.resolve({data:single?output[0]:output,error:null}).then(ok,fail);
       }catch(err){return Promise.reject(err).then(ok,fail);}}};q.is=(k,v)=>{filters.push([k,v]);return q;};return q;};
-    window.supabase={createClient:()=>({from:makeQuery,rpc:async()=>({data:false,error:null}),auth:{getUser:async()=>({data:{user:window.testAnonymous?null:{id:actor,email:'test@example.invalid',email_confirmed_at:new Date().toISOString()}}}),onAuthStateChange(fn){window.testAuthChange=fn;},signOut:async()=>({error:null})},storage:{from:()=>({upload:async(path,file)=>{if(window.testRefreshDuringUpload){window.testRefreshDuringUpload=false;window.testSlowSync=true;window.testAuthChange('TOKEN_REFRESHED');await new Promise(r=>setTimeout(r,30));}if(window.testFailUpload&&file.name==='fail.pdf')return {error:{message:'upload failed'}};window.testFiles[path]=file;return {data:{path},error:null};},download:async(path)=>({data:window.testFiles[path]||null,error:window.testFiles[path]?null:{message:'Not found'}}),remove:async(paths)=>{if(window.testFailCleanup)return {error:{message:'cleanup failed'}};paths.forEach(p=>delete window.testFiles[p]);return {data:paths,error:null};}})}})};
+    window.supabase={createClient:()=>({from:makeQuery,rpc:async()=>({data:false,error:null}),auth:{getSession:async()=>({data:{session:window.testAnonymous?null:{access_token:'browser-session'}}}),getUser:async()=>({data:{user:window.testAnonymous?null:{id:actor,email:'test@example.invalid',email_confirmed_at:new Date().toISOString()}}}),onAuthStateChange(fn){window.testAuthChange=fn;},signOut:async()=>({error:null})},storage:{from:()=>({upload:async(path,file)=>{if(window.testRefreshDuringUpload){window.testRefreshDuringUpload=false;window.testSlowSync=true;window.testAuthChange('TOKEN_REFRESHED');await new Promise(r=>setTimeout(r,30));}if(window.testFailUpload&&file.name==='fail.pdf')return {error:{message:'upload failed'}};window.testFiles[path]=file;return {data:{path},error:null};},download:async(path)=>({data:window.testFiles[path]||null,error:window.testFiles[path]?null:{message:'Not found'}}),remove:async(paths)=>{if(window.testFailCleanup)return {error:{message:'cleanup failed'}};paths.forEach(p=>delete window.testFiles[p]);return {data:paths,error:null};}})}})};
   `}));
   await page.goto(base+'/#/activities');
+  const originalPhoto=Buffer.from(await page.evaluate(()=>{
+    const canvas=document.createElement('canvas');canvas.width=2400;canvas.height=1200;
+    const context=canvas.getContext('2d'),pixels=context.createImageData(canvas.width,canvas.height);let seed=12345;
+    for(let i=0;i<pixels.data.length;i+=4){seed=(Math.imul(seed,1664525)+1013904223)>>>0;pixels.data[i]=seed&255;pixels.data[i+1]=(seed>>>8)&255;pixels.data[i+2]=(seed>>>16)&255;pixels.data[i+3]=255;}
+    context.putImageData(pixels,0,0);return canvas.toDataURL('image/png').split(',')[1];
+  }),'base64');
   for(const [menu,category] of [['activities','활동 기록'],['gallery','SEM 갤러리'],['resources','교육 자료'],['community','자유 나눔']]){
     await page.evaluate(menu=>location.hash='#/'+menu,menu);
     const button=menu==='community'?page.locator('[data-member-action="write"]'):page.locator('[data-content-category]');
@@ -43,11 +77,22 @@ try{
     if(menu==='activities'){await page.locator('[name="activity_date"]').fill('2024-02-29');await page.locator('[name="portfolio_public"]').check();}
     if(menu==='gallery'){await page.locator('[name="gallery_topic"]').selectOption('__new__');await page.locator('[name="new_topic"]').fill('곤충');}
     if(menu==='gallery')await page.evaluate(()=>window.testRefreshDuringUpload=true);
-    if(menu==='gallery')await page.locator('[name="files"]').setInputFiles([{name:'관찰.png',mimeType:'image/png',buffer:Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/l9sAAAAASUVORK5CYII=','base64')},{name:'활동지.pdf',mimeType:'application/pdf',buffer:Buffer.from('%PDF-1.4\n%%EOF')}]);
+    if(menu==='gallery')await page.locator('[name="files"]').setInputFiles([{name:'관찰.png',mimeType:'image/png',buffer:originalPhoto},{name:'활동지.pdf',mimeType:'application/pdf',buffer:Buffer.from('%PDF-1.4\n%%EOF')}]);
     await page.locator('#content-form [type="submit"]').click();
     await page.locator('.content-card').filter({hasText:category+' 검사 제목'}).waitFor();
     console.log('PASS '+category+' 게시 및 메뉴 표시');
   }
+  assert.equal(driveUploads.size,1);
+  const [archivedId,archived]=[...driveUploads.entries()][0];
+  assert.deepEqual(Buffer.concat(archived.original),originalPhoto);
+  assert.ok(archived.original.length>1);
+  for(const [variant,longest,budget] of [['display',2048,1024*1024],['thumb',600,256*1024]]){
+    const bytes=Buffer.concat(archived[variant]);assert.ok(bytes.length<=budget);
+    const dimensions=await page.evaluate(async base64=>{const blob=await (await fetch('data:image/webp;base64,'+base64)).blob(),image=await createImageBitmap(blob);const result=[image.width,image.height];image.close();return result;},bytes.toString('base64'));
+    assert.ok(Math.max(...dimensions)<=longest);assert.equal(dimensions[0]/dimensions[1],2);
+  }
+  assert.equal(await page.evaluate(()=>Object.values(window.testFiles).every(file=>file.type==='application/pdf')),true);
+  console.log('PASS real canvas WebP previews, unchanged original, bounded authenticated Drive chunks, documents on existing storage');
   await page.evaluate(()=>location.hash='#/gallery');
   await page.locator('#gallery-topic-filter option[value="topic:곤충"]').waitFor({state:'attached'});
   assert.equal(await page.locator('#member-gallery-list .member-gallery-grid').count(),1);
@@ -78,13 +123,32 @@ try{
   assert.equal(await page.locator('.member-post-copy').textContent(),'사진과 자료를 나누는 검사 내용입니다.');
   console.log('PASS 갤러리 큰 사진 전용 카드, 모바일 배치, 클릭 후 설명 표시');
   assert.equal(await page.locator('.content-attachment').count(),2);
+  assert.equal(await page.locator('.content-attachment button').count(),1);
+  assert.equal(await page.getByRole('button',{name:/관찰.png.*다운로드/}).count(),0);
+  assert.ok(mediaVariants.includes('thumb')&&mediaVariants.includes('display'));
   const download=page.waitForEvent('download');await page.getByRole('button',{name:/활동지.pdf.*다운로드/}).click();assert.equal((await download).suggestedFilename(),'활동지.pdf');
   await page.locator('#content-edit').click();await page.locator('#content-form [name="title"]').fill('수정된 사진 기록');await page.locator('#content-form [type="submit"]').click();
   await page.locator('.content-card').filter({hasText:'수정된 사진 기록'}).click();
   await page.locator('#content-delete').click();await page.locator('#content-delete-confirm').click();
   await page.waitForFunction(()=>!document.querySelector('#modal[open]')&&document.querySelectorAll('#member-gallery-list [data-member-post]').length===0);
   assert.equal(await page.evaluate(()=>Object.keys(window.testFiles).length),0);
+  assert.ok(driveDeletes.includes(archivedId));assert.equal(driveUploads.size,0);
   console.log('PASS 사진 미리보기, 파일 다운로드, 본인 수정·삭제');
+  const initCount=driveCalls.filter(action=>action==='init').length,deleteCount=driveDeletes.length;
+  await page.locator('[data-content-category]').click();
+  await page.locator('#content-form [name="title"]').fill('깨진 사진 정리 검사');
+  await page.locator('#content-form [name="body"]').fill('사진 변환 실패 시 초안과 예약 정보를 정리합니다.');
+  await page.locator('[name="gallery_topic"]').selectOption('topic:곤충');
+  await page.locator('[name="files"]').setInputFiles({name:'broken.png',mimeType:'image/png',buffer:Buffer.from('not a decodable image')});
+  await page.locator('#content-form [type="submit"]').click();
+  await page.waitForFunction(()=>document.querySelector('#content-error').textContent.length>0&&!document.querySelector('#content-form [type="submit"]').disabled);
+  assert.equal(driveCalls.filter(action=>action==='init').length,initCount);
+  assert.equal(driveDeletes.length,deleteCount+1);
+  assert.equal(await page.evaluate(()=>window.testPosts.some(p=>p.title==='깨진 사진 정리 검사')),false);
+  assert.equal(await page.evaluate(()=>window.testAttachments.some(a=>a.filename==='broken.png')),false);
+  assert.equal(await page.evaluate(()=>Object.keys(window.testFiles).length),0);
+  await page.locator('.modal-close').click();
+  console.log('PASS decode failure before Drive init removes reservation and draft without fallback');
   await page.evaluate(()=>{window.testFailUpload=true;window.testFailCleanup=true;});
   await page.locator('[data-content-category]').click();
   await page.locator('#content-form [name="title"]').fill('미완료 업로드 검사');
@@ -127,6 +191,7 @@ try{
   await page.locator('.content-image').waitFor();
   assert.equal(await page.locator('.member-post-copy').textContent(),'포트폴리오 설명');
   assert.equal(await page.locator('.content-attachment').count(),1);
+  assert.equal(await page.locator('.content-attachment button').count(),0);
   assert.equal(await page.locator('#content-edit').count(),0);
   await page.locator('.modal-close').click();
   await page.evaluate(()=>{window.testPosts.find(p=>p.id==='new-public').portfolio_public=false;location.hash='#/';});

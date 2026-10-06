@@ -14,3 +14,11 @@ content-browser-check.mjs
 content-mobile-check.png
 gallery-topics.sql
 activity-portfolio.sql
+drive-storage.sql
+drive-storage-plan.md
+drive-storage-setup.md
+drive-oauth-setup.mjs
+client_secret*.json
+credentials*.json
+.env
+.env.*

@@ -3,6 +3,9 @@
   window.createBioSEMContent=function(deps){
     const {state,sync,open,notify,refresh}=deps,c=window.BioSEMContentCore,e=window.BioSEMMembership.escape;
     const client=()=>deps.client(),allowed=()=>window.BioSEMMembership.canParticipate(state),bucket=()=>client().storage.from('biosem-files');
+    const drive=window.createBioSEMDrivePhotos({client});
+    const downloadPhoto=(attachment,variant='display')=>attachment.storage_provider==='drive'?drive.download(attachment,variant):bucket().download(attachment.object_path);
+    async function removeFiles(attachments){const archived=attachments.filter(a=>a.storage_provider==='drive'),paths=attachments.filter(a=>a.storage_provider!=='drive').map(a=>a.object_path);if(archived.length){const r=await drive.remove(archived);if(r.error)throw r.error;}if(paths.length){const r=await bucket().remove(paths);if(r.error)throw r.error;}}
     const urls=new Set(),loads=new Map();let epoch=0,authEpoch=0,busy=false;
     const $=s=>document.querySelector(s),date=v=>new Intl.DateTimeFormat('ko-KR',{dateStyle:'medium'}).format(new Date(v));
     function invalidate(){epoch++;loads.clear();for(const u of urls)URL.revokeObjectURL(u);urls.clear();}
@@ -67,10 +70,13 @@
           for(let i=0;i<files.length;i++){
             if(!active())throw userError('로그인 상태가 바뀌었습니다. 다시 시도해 주세요.');
             const item=files[i],attachmentId=crypto.randomUUID(),path=actor+'/'+draft+'/'+attachmentId+'.'+item.extension;
+            const archive=window.BIOSEM_CONFIG.photoStorage==='drive'&&item.mime.startsWith('image/');
             const progress=form.querySelector('#content-progress');if(progress)progress.textContent=`파일 ${i+1}/${files.length} 업로드 중…`;
-            const metadata=await client().from('biosem_attachments').insert({id:attachmentId,post_id:draft,object_path:path,filename:item.file.name,mime:item.mime,bytes:item.file.size});if(metadata.error)throw metadata.error;
-            uploaded.push(path);
-            const upload=await bucket().upload(path,item.file,{contentType:item.mime,upsert:false});if(upload.error)throw upload.error;
+            const attachment={id:attachmentId,post_id:draft,object_path:path,filename:item.file.name,mime:item.mime,bytes:item.file.size,storage_provider:archive?'drive':'supabase'};
+            const metadata=await client().from('biosem_attachments').insert(attachment);if(metadata.error)throw metadata.error;
+            uploaded.push(attachment);
+            if(archive)await drive.upload(attachment,item.file,message=>{if(progress)progress.textContent=message;});
+            else{const upload=await bucket().upload(path,item.file,{contentType:item.mime,upsert:false});if(upload.error)throw upload.error;}
           }
           if(!active())throw userError('로그인 상태가 바뀌었습니다. 다시 시도해 주세요.');
           const done=await client().from('biosem_posts').update({published:true}).eq('id',draft).select('id').single();if(done.error)throw done.error;published=true;
@@ -79,7 +85,7 @@
         window.BioSEMUI.closeModal();notify(id?'게시물을 수정했습니다.':'게시물을 등록했습니다.');
         await deps.navigate(fields.category);
       }catch(error){
-        if(draft&&!published){try{if(uploaded.length){const removal=await bucket().remove(uploaded);if(removal.error)throw removal.error;}const removal=await client().from('biosem_posts').delete().eq('id',draft).select('id').single();if(removal.error)throw removal.error;}catch{error=userError('업로드 정리를 완료하지 못했습니다. 목록에 나에게만 보이는 미완료 게시물이 남아 있습니다. 연결이 복구되면 해당 게시물을 삭제하고 다시 등록해 주세요.');}}
+        if(draft&&!published){try{await removeFiles(uploaded);const removal=await client().from('biosem_posts').delete().eq('id',draft).select('id').single();if(removal.error)throw removal.error;}catch{error=userError('업로드 정리를 완료하지 못했습니다. 목록에 나에게만 보이는 미완료 게시물이 남아 있습니다. 연결이 복구되면 해당 게시물을 삭제하고 다시 등록해 주세요.');}}
         showError(error);
       }finally{busy=false;if(button.isConnected)button.disabled=false;}
     }
@@ -94,7 +100,7 @@
       if(!active()||(!portfolio&&(!allowed()||!state.user)))return;
       if(!client()){target.innerHTML='<p class="member-help">활동 포트폴리오 연결을 준비하고 있습니다.</p>';return;}
       const actor=state.user?.id;target.innerHTML='<p class="member-loading">게시물을 불러오고 있습니다.</p>';
-      let query=client().from('biosem_posts').select('id,title,category,created_at,activity_date,published,biosem_attachments(id,object_path,mime,filename,bytes)').eq('category',category);
+      let query=client().from('biosem_posts').select('id,title,category,created_at,activity_date,published,biosem_attachments(id,object_path,mime,filename,bytes,storage_provider)').eq('category',category);
       if(portfolio)query=query.eq('published',true).eq('portfolio_public',true);
       if(category==='활동 기록')query=query.order('activity_date',{ascending:false,nullsFirst:false});
       if(gallery&&topic)query=topic==='__none__'?query.is('gallery_topic',null):query.eq('gallery_topic',topic.slice(6));
@@ -109,12 +115,12 @@
       }).join('')+references+'</div>':portfolio?'<div class="empty-state compact"><h3>공개된 활동을 준비하고 있습니다.</h3><p>회원이 활동 기록에서 포트폴리오 공개를 선택하면 이곳에 소개됩니다.</p></div>':'<div class="empty-state compact"><h2>첫 번째 기록을 남겨보세요.</h2><p>아직 등록된 게시물이 없습니다.</p></div>';
       const pager=document.createElement('div');pager.className='member-actions';
       for(const [label,next,enabled] of [['이전',page-1,page>0],['다음',page+1,hasNext]]){const b=document.createElement('button');b.className='button small';b.textContent=label;b.disabled=!enabled;b.addEventListener('click',()=>load(category,target,next,topic,options));pager.append(b);}if(page>0||hasNext)target.append(pager);
-      for(const p of rows){const first=p.biosem_attachments.find(a=>a.mime.startsWith('image/'));if(!first)continue;const result=await bucket().download(first.object_path);if(!active()||(!portfolio&&(!allowed()||state.user?.id!==actor)))return;const holder=target.querySelector(`[data-thumbnail="${p.id}"]`);if(!holder)continue;const status=holder.querySelector('.gallery-image-status');if(result.error){if(status)status.textContent='사진을 불러오지 못했습니다 · 눌러서 다시 보기';continue;}const img=document.createElement('img');img.onload=()=>status?.remove();img.onerror=()=>{img.remove();if(status)status.textContent='사진을 표시하지 못했습니다 · 눌러서 내용 보기';};img.src=blobUrl(result.data);img.alt=p.title;img.loading='lazy';holder.append(img);}
+      for(const p of rows){const first=p.biosem_attachments.find(a=>a.mime.startsWith('image/'));if(!first)continue;const result=await downloadPhoto(first,'thumb');if(!active()||(!portfolio&&(!allowed()||state.user?.id!==actor)))return;const holder=target.querySelector(`[data-thumbnail="${p.id}"]`);if(!holder)continue;const status=holder.querySelector('.gallery-image-status');if(result.error){if(status)status.textContent='사진을 불러오지 못했습니다 · 눌러서 다시 보기';continue;}const img=document.createElement('img');img.onload=()=>status?.remove();img.onerror=()=>{img.remove();if(status)status.textContent='사진을 표시하지 못했습니다 · 눌러서 내용 보기';};img.src=blobUrl(result.data);img.alt=p.title;img.loading='lazy';holder.append(img);}
     }
     async function show(id,publicView=false){
       const start=epoch,revision=$('#modal').dataset.revision;
       if((!publicView&&!await requireMember())||epoch!==start||!client())return;const actor=state.user?.id;
-      let query=client().from('biosem_posts').select(publicView?'id,title,body,category,created_at,activity_date,published,biosem_attachments(id,object_path,mime,filename,bytes)':'*,biosem_attachments(*)').eq('id',id);
+      let query=client().from('biosem_posts').select(publicView?'id,title,body,category,created_at,activity_date,published,biosem_attachments(id,object_path,mime,filename,bytes,storage_provider)':'*,biosem_attachments(*)').eq('id',id);
       if(publicView)query=query.eq('category','활동 기록').eq('published',true).eq('portfolio_public',true);
       const r=await query.maybeSingle();
       if(epoch!==start||(!publicView&&(state.user?.id!==actor||!allowed()))||$('#modal').dataset.revision!==revision)return;
@@ -131,13 +137,13 @@
         const row=document.createElement('div');row.className='content-attachment';
         const button=document.createElement('button');button.className='button';button.textContent=`${a.filename} · ${(a.bytes/1024/1024).toFixed(1)}MB 다운로드`;
         button.onclick=async()=>{button.disabled=true;try{if(!publicView&&!await requireMember())return;const result=await bucket().download(a.object_path);if(result.error)throw result.error;if(epoch!==start||(!publicView&&state.user?.id!==actor)||!view.isConnected)return;const link=document.createElement('a');const url=blobUrl(result.data);link.href=url;link.download=a.filename;document.body.append(link);link.click();link.remove();}catch(err){showError(err);}finally{button.disabled=false;}};
-        row.append(button);view.append(row);
-        if(a.mime.startsWith('image/')){const result=await bucket().download(a.object_path);if(epoch!==start||!view.isConnected||(!publicView&&(state.user?.id!==actor||!allowed())))return;if(!result.error){const img=document.createElement('img');img.src=blobUrl(result.data);img.alt=a.filename;img.className='content-image';row.prepend(img);}}
+        if(!a.mime.startsWith('image/'))row.append(button);view.append(row);
+        if(a.mime.startsWith('image/')){const result=await downloadPhoto(a);if(epoch!==start||!view.isConnected||(!publicView&&(state.user?.id!==actor||!allowed())))return;if(!result.error){const img=document.createElement('img');img.src=blobUrl(result.data);img.alt=a.filename;img.className='content-image';row.prepend(img);}}
       }
     }
     function confirmDelete(post){
       window.BioSEMUI.openModal(`<div class="modal-inner"><h2 id="modal-title">게시물을 삭제할까요?</h2><p>${e(post.title)}</p><p>게시물과 첨부 파일이 삭제됩니다.</p><div class="member-actions"><button class="button" data-close>취소</button><button class="button danger" id="content-delete-confirm">삭제하기</button></div><div id="content-error" class="member-error" role="alert" tabindex="-1"></div></div>`);
-      $('#content-delete-confirm').onclick=async event=>{event.target.disabled=true;try{if(!await requireMember())return;const paths=post.biosem_attachments.map(a=>a.object_path);if(paths.length){const removed=await bucket().remove(paths);if(removed.error)throw removed.error;}const result=await client().from('biosem_posts').delete().eq('id',post.id).select('id').single();if(result.error)throw result.error;window.BioSEMUI.closeModal();notify('게시물을 삭제했습니다.');await refresh();}catch(err){showError(err);event.target.disabled=false;}};
+      $('#content-delete-confirm').onclick=async event=>{event.target.disabled=true;try{if(!await requireMember())return;await removeFiles(post.biosem_attachments);const result=await client().from('biosem_posts').delete().eq('id',post.id).select('id').single();if(result.error)throw result.error;window.BioSEMUI.closeModal();notify('게시물을 삭제했습니다.');await refresh();}catch(err){showError(err);event.target.disabled=false;}};
     }
     document.addEventListener('submit',event=>{if(event.target.id==='content-form'){event.preventDefault();save(event.target);}});
     document.addEventListener('change',event=>{

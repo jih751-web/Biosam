@@ -4,5 +4,6 @@ window.BIOSEM_CONFIG = Object.freeze({
   supabasePublishableKey: 'sb_publishable_L14lM_4f4zebtQ_s3eXJdg_uG_LNxI7',
   enabledProviders: ['google', 'kakao'],
   acceptingApplications: true,
+  photoStorage: 'supabase', // Switch to drive only after owner OAuth and live transfer verification.
   privacyNoticeUrl: '/privacy.html'
 });
