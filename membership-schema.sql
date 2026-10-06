@@ -183,4 +183,17 @@ create policy biosem_posts_read on public.biosem_posts for select to authenticat
   using((select biosem_private.is_approved_member()) or (select biosem_private.is_admin()));
 create policy biosem_posts_create on public.biosem_posts for insert to authenticated
   with check(author_id=(select auth.uid()) and ((select biosem_private.is_approved_member()) or (select biosem_private.is_admin())));
+-- Runs daily as the database maintenance role. The 89-day cutoff allows
+-- deletion within 90 days without touching approved or suspended members.
+create function biosem_private.purge_expired_applications() returns integer
+language plpgsql security invoker set search_path = '' as $$
+declare removed integer;
+begin
+  delete from public.biosem_memberships
+    where status in ('pending','rejected') and submitted_at <= now() - interval '89 days';
+  get diagnostics removed = row_count;
+  return removed;
+end;
+$$;
+revoke all on function biosem_private.purge_expired_applications() from public,anon,authenticated;
 commit;

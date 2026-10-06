@@ -52,4 +52,14 @@ await check('all old applications remain reachable beyond 100 users',()=>as(ids.
 await check('directory search treats SQL syntax as literal text',()=>as(ids.admin,async()=>{const r=await db.query("select public.biosem_list_members('all',$1,0) as list",["%' OR 1=1 --"]);assert.equal(r.rows[0].list.total,0);await assert.rejects(db.query("select public.biosem_list_members('all','',-1)"));}));
 await check('removed admin loses review permission immediately',async()=>{await db.query('delete from biosem_private.admins where user_id=$1',[ids.admin]);await as(ids.admin,()=>assert.rejects(review(ids.alice,'approved','suspended','재확인 필요')));});
 await check('deleted auth identity loses membership access',async()=>{await db.query('delete from auth.users where id=$1',[ids.alice]);await as(ids.alice,async()=>{await assert.rejects(write(ids.alice));assert.equal((await db.query('select * from public.biosem_posts')).rows.length,0);});});
+await check('ordinary members cannot run retention cleanup',()=>as(ids.bob,()=>assert.rejects(db.query('select biosem_private.purge_expired_applications()'))));
+await check('retention deletes only expired pending or rejected applications',async()=>{
+  await db.exec(`insert into auth.users(id,email_confirmed_at) select ('30000000-0000-4000-8000-'||lpad(n::text,12,'0'))::uuid,now() from generate_series(1,5) n;
+  insert into public.biosem_memberships(user_id,real_name,institution,phone,interest,consent_version,status,submitted_at)
+  select ('30000000-0000-4000-8000-'||lpad(n::text,12,'0'))::uuid,'보관 검사','검사 학교','01012345678','생물 수업 활용','2026-10-06',s,now()-age
+  from (values(1,'pending',interval '89 days 12 hours'),(2,'rejected',interval '100 days'),(3,'approved',interval '100 days'),(4,'suspended',interval '100 days'),(5,'pending',interval '88 days')) v(n,s,age);`);
+  assert.equal((await db.query('select biosem_private.purge_expired_applications() as removed')).rows[0].removed,2);
+  const remaining=await db.query("select status from public.biosem_memberships where user_id::text like '30000000-%' order by user_id");
+  assert.deepEqual(remaining.rows.map(r=>r.status),['approved','suspended','pending']);
+});
 await db.close();console.log(`Membership security: ${passed} checks passed.`);

@@ -3,6 +3,6 @@ window.BIOSEM_CONFIG = Object.freeze({
   supabaseUrl: 'https://fpvumqtelefeqafemkrl.supabase.co',
   supabasePublishableKey: 'sb_publishable_L14lM_4f4zebtQ_s3eXJdg_uG_LNxI7',
   enabledProviders: ['google', 'kakao'],
-  acceptingApplications: false, // Enable after privacy notice and operator account are ready.
-  privacyNoticeUrl: ''
+  acceptingApplications: true,
+  privacyNoticeUrl: '/privacy.html'
 });
