@@ -23,7 +23,7 @@
 - [x] Local OAuth setup helper, deployment environment names, account verification logic, setup guide. Actual owner authorization remains pending.
 - [x] Review and local unit/security/browser checks.
 - [x] Owner authorization, Production-only sensitive environment variables, real private Drive upload/preview/delete verification (isolated membership mock; actual Google API).
-- [ ] Production deployment and deployed endpoint checks.
+- [x] Production deployment `dpl_GxMrSuzPmGz6Jv6nc1TDx9nJVj5k` READY, code commit `301fb40`. Public status/config and portfolio REST pass; original and anonymous writes denied. Runtime-log aggregation is unavailable (connector 403); direct HTTP checks passed.
 
 ## Review focus
 - Pending/suspended cannot mutate public photos; anonymous sees opted-in photos only.

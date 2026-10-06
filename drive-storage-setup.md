@@ -38,4 +38,6 @@ Vercel **Production 전용** 비밀 환경변수: GOOGLE_DRIVE_CLIENT_ID, GOOGLE
 
 남은 운영 설정: Google OAuth 게시 상태를 확인해야 합니다. Testing에서 발급된 갱신 토큰은 일반적으로 7일 후 만료되므로 Production 전환 후 같은 로컬 도구로 재승인하고, 기존 폴더·암호화 키를 유지하면서 Vercel 갱신 토큰을 교체·재배포합니다.
 
+운영 배포 결과: 코드 `301fb40`을 https://biosam.vercel.app 에 배포했고 Vercel READY를 확인했습니다. `/api/drive?action=status`는 configured=true, 원본 요청과 비로그인 쓰기는 403, 존재하지 않는 사진은 404입니다. 공개 포트폴리오의 새 컬럼 조회는 200입니다. 운영 회원의 로그인 세션을 이용한 전체 업로드는 별도 확인 대상입니다. Vercel 로그 집계는 연결 권한 오류(403)로 확인하지 못했으며 직접 HTTP 응답 검증과 구별합니다.
+
 공식 설정 참고: [Google 데스크톱 OAuth 안내](https://developers.google.com/identity/protocols/oauth2/native-app), [Google Drive API 활성화](https://console.cloud.google.com/apis/library/drive.googleapis.com).
