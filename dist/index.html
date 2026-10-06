@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#0b4f47">
+  <title>BioSEM — 작은 세계, 더 넓은 배움</title>
+  <meta name="description" content="주사전자현미경으로 생명의 미세한 세계를 탐구하는 생물교사 공동체. BioSEM의 관찰 이미지, 활동 기록과 수업 아이디어를 만나보세요.">
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 40'%3E%3Crect width='40' height='40' rx='10' fill='%230b4f47'/%3E%3Ccircle cx='20' cy='20' r='12' fill='none' stroke='%23e2f0b6' stroke-width='2'/%3E%3Ccircle cx='20' cy='20' r='6' fill='none' stroke='%23e2f0b6' stroke-width='2'/%3E%3Ccircle cx='20' cy='20' r='2' fill='%23e2f0b6'/%3E%3C/svg%3E">
+  <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;450;500;550;600;650;700;750;800&family=DM+Sans:wght@400;500;600;650;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css"><link rel="stylesheet" href="membership.css">
+  <script defer src="config.js"></script><script defer src="supabase-2.117.2.js"></script><script defer src="membership-core.js"></script><script defer src="app.js"></script><script defer src="membership.js"></script>
+</head>
+<body>
+<a class="skip-link" href="#main">본문으로 건너뛰기</a>
+<header class="site-header">
+  <div class="header-inner">
+    <a class="brand" href="#/" aria-label="BioSEM 홈"><svg viewBox="0 0 40 40" aria-hidden="true"><circle cx="20" cy="20" r="16"/><ellipse cx="20" cy="20" rx="8" ry="16" transform="rotate(45 20 20)"/><ellipse cx="20" cy="20" rx="8" ry="16" transform="rotate(-45 20 20)"/><circle cx="20" cy="20" r="3" class="brand-dot"/></svg><span>Bio<span class="brand-light">SEM</span><small>BIOLOGY × MICROSCOPY</small></span></a>
+    <nav aria-label="주요 메뉴" id="navigation"><a href="#/about">소개</a><a href="#/activities">활동 기록</a><a href="#/gallery">SEM 갤러리</a><a href="#/resources">교육 자료</a><a href="#/members">구성원</a><a href="#/community">커뮤니티</a></nav>
+    <div class="header-actions"><button class="login-button" data-auth="login">로그인</button><button class="button small primary" data-auth="join">함께하기</button><button class="menu-toggle" aria-label="메뉴 열기" aria-controls="navigation" aria-expanded="false"><span></span><span></span></button></div>
+  </div>
+</header>
+<main id="main" tabindex="-1"></main>
+<footer class="site-footer"><div class="container footer-top"><a class="footer-brand" href="#/">BioSEM<span>작은 세계에서 시작되는, 더 넓은 배움.</span></a><div class="footer-links"><a href="#/about">BioSEM 소개</a><button data-auth="join">참여 안내</button><a href="#/credits">이미지 출처</a></div></div><div class="container footer-bottom"><span>© 2026 BioSEM. Biology Teachers’ SEM Community.</span><span>관찰하고, 연결하고, 함께 배우다.</span></div></footer>
+<dialog id="modal" aria-labelledby="modal-title"><div id="modal-content"></div><button class="modal-close" aria-label="닫기">×</button></dialog>
+<div class="toast" role="status" aria-live="polite"></div>
+</body>
+</html>

@@ -1,0 +1,10 @@
+.sites-runtime/
+node_modules/
+*.tar.gz
+*.log
+qa/
+.vercel/
+.env
+.env.*
+!.env.example
+.openai/

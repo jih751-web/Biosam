@@ -1,0 +1,10 @@
+.git
+.openai
+.sites-runtime
+node_modules
+qa
+*.log
+*.test.mjs
+membership-schema.sql
+membership-plan.md
+server.mjs
