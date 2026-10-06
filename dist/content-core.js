@@ -13,6 +13,7 @@
   }
   function validatePost(input){const post={category:String(input.category||''),title:String(input.title||'').trim(),body:String(input.body||'').trim()};if(!categories.includes(post.category))throw Error('분류를 확인해 주세요.');if(post.title.length<2||post.title.length>120)throw Error('제목은 2~120자로 입력해 주세요.');if(post.body.length<2||post.body.length>10000)throw Error('내용은 2~10000자로 입력해 주세요.');return post;}
   function validateTopic(value){const name=String(value||'').trim();if(!name||name.length>40)throw Error('주제는 1~40자로 입력해 주세요.');return name;}
-  const api={categories,types,validateFiles,validatePost,validateTopic,destination:c=>({'활동 기록':'activities','SEM 갤러리':'gallery','교육 자료':'resources'}[c]||'community')};
+  function validateActivityDate(value){const text=String(value||'');const parsed=new Date(text+'T00:00:00Z');if(!/^\d{4}-\d{2}-\d{2}$/.test(text)||text<'1900-01-01'||!Number.isFinite(parsed.getTime())||parsed.toISOString().slice(0,10)!==text)throw Error('활동 날짜를 정확하게 선택해 주세요.');return text;}
+  const api={categories,types,validateFiles,validatePost,validateTopic,validateActivityDate,destination:c=>({'활동 기록':'activities','SEM 갤러리':'gallery','교육 자료':'resources'}[c]||'community')};
   root.BioSEMContentCore=api;if(typeof module!=='undefined'&&module.exports)module.exports=api;
 })(globalThis);

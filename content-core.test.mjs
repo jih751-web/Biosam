@@ -13,3 +13,6 @@ console.log('PASS attachment limits, file types, and menu validation');
 assert.equal(core.validateTopic('  꽃가루  '),'꽃가루');
 assert.throws(()=>core.validateTopic(' '));
 assert.throws(()=>core.validateTopic('가'.repeat(41)));
+assert.equal(core.validateActivityDate('2024-02-29'),'2024-02-29');
+assert.equal(core.validateActivityDate('2026-10-06'),'2026-10-06');
+for(const value of ['','2025-02-29','2026-02-30','2026-13-01','2026-2-01','1899-12-31'])assert.throws(()=>core.validateActivityDate(value));

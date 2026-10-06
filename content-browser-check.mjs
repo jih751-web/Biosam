@@ -18,8 +18,8 @@ try{
   await page.route('**/supabase-2.117.2.js',route=>route.fulfill({contentType:'text/javascript',body:`
     window.testStatus='approved';window.testPosts=[];window.testAttachments=[];window.testFiles={};window.testTopics=[{name:'식물'},{name:'미생물'},{name:'기타'}];
     const actor='10000000-0000-4000-8000-000000000001';
-    const makeQuery=table=>{let method='select',data,filters=[],single=false,range;
-      const q={select(){return q},insert(d){method='insert';data=d;return q},update(d){method='update';data=d;return q},delete(){method='delete';return q},eq(k,v){filters.push([k,v]);return q},order(){return q},limit(){return q},range(a,b){range=[a,b];return q},single(){single=true;return q},maybeSingle(){single=true;return q},then(ok,fail){try{
+    const makeQuery=table=>{let method='select',data,filters=[],single=false,range,orders=[];
+      const q={select(){return q},insert(d){method='insert';data=d;return q},update(d){method='update';data=d;return q},delete(){method='delete';return q},eq(k,v){filters.push([k,v]);return q},order(k,options={ascending:true}){orders.push([k,options]);return q},limit(){return q},range(a,b){range=[a,b];return q},single(){single=true;return q},maybeSingle(){single=true;return q},then(ok,fail){try{
         if(table==='biosem_memberships')return new Promise(resolve=>setTimeout(()=>resolve({data:{status:window.testStatus,real_name:'검사 회원',institution:'검사 학교',phone:'01012345678'},error:null}),window.testSlowSync?150:0)).then(ok,fail);
         let rows=table==='biosem_gallery_topics'?window.testTopics:table==='biosem_posts'?window.testPosts:window.testAttachments;
         const matches=x=>filters.every(([k,v])=>x[k]===v);
@@ -28,10 +28,10 @@ try{
         else if(method==='update'){output=rows.filter(matches);output.forEach(x=>Object.assign(x,data));}
         else if(method==='delete'){output=rows.filter(matches);const kept=rows.filter(x=>!matches(x));if(table==='biosem_posts')window.testPosts=kept;else window.testAttachments=kept;}
         else output=rows.filter(matches);
-        output=output.map(x=>table==='biosem_posts'?{...x,biosem_attachments:window.testAttachments.filter(a=>a.post_id===x.id)}:{...x});if(range)output=output.slice(range[0],range[1]+1);
+        output=output.map(x=>table==='biosem_posts'?{...x,biosem_attachments:window.testAttachments.filter(a=>a.post_id===x.id)}:{...x});output.sort((a,b)=>{for(const [k,o] of orders){if(a[k]===b[k])continue;if(a[k]==null)return o.nullsFirst?-1:1;if(b[k]==null)return o.nullsFirst?1:-1;return (a[k]<b[k]?-1:1)*(o.ascending?1:-1);}return 0;});if(range)output=output.slice(range[0],range[1]+1);
         return Promise.resolve({data:single?output[0]:output,error:null}).then(ok,fail);
       }catch(err){return Promise.reject(err).then(ok,fail);}}};q.is=(k,v)=>{filters.push([k,v]);return q;};return q;};
-    window.supabase={createClient:()=>({from:makeQuery,rpc:async()=>({data:false,error:null}),auth:{getUser:async()=>({data:{user:{id:actor,email:'test@example.invalid',email_confirmed_at:new Date().toISOString()}}}),onAuthStateChange(fn){window.testAuthChange=fn;},signOut:async()=>({error:null})},storage:{from:()=>({upload:async(path,file)=>{if(window.testRefreshDuringUpload){window.testRefreshDuringUpload=false;window.testSlowSync=true;window.testAuthChange('TOKEN_REFRESHED');await new Promise(r=>setTimeout(r,30));}if(window.testFailUpload&&file.name==='fail.pdf')return {error:{message:'upload failed'}};window.testFiles[path]=file;return {data:{path},error:null};},download:async(path)=>({data:window.testFiles[path]||null,error:window.testFiles[path]?null:{message:'Not found'}}),remove:async(paths)=>{if(window.testFailCleanup)return {error:{message:'cleanup failed'}};paths.forEach(p=>delete window.testFiles[p]);return {data:paths,error:null};}})}})};
+    window.supabase={createClient:()=>({from:makeQuery,rpc:async()=>({data:false,error:null}),auth:{getUser:async()=>({data:{user:window.testAnonymous?null:{id:actor,email:'test@example.invalid',email_confirmed_at:new Date().toISOString()}}}),onAuthStateChange(fn){window.testAuthChange=fn;},signOut:async()=>({error:null})},storage:{from:()=>({upload:async(path,file)=>{if(window.testRefreshDuringUpload){window.testRefreshDuringUpload=false;window.testSlowSync=true;window.testAuthChange('TOKEN_REFRESHED');await new Promise(r=>setTimeout(r,30));}if(window.testFailUpload&&file.name==='fail.pdf')return {error:{message:'upload failed'}};window.testFiles[path]=file;return {data:{path},error:null};},download:async(path)=>({data:window.testFiles[path]||null,error:window.testFiles[path]?null:{message:'Not found'}}),remove:async(paths)=>{if(window.testFailCleanup)return {error:{message:'cleanup failed'}};paths.forEach(p=>delete window.testFiles[p]);return {data:paths,error:null};}})}})};
   `}));
   await page.goto(base+'/#/activities');
   for(const [menu,category] of [['activities','활동 기록'],['gallery','SEM 갤러리'],['resources','교육 자료'],['community','자유 나눔']]){
@@ -40,6 +40,7 @@ try{
     await button.click();await page.locator('#content-form').waitFor();
     await page.locator('#content-form [name="title"]').fill(category+' 검사 제목');
     await page.locator('#content-form [name="body"]').fill('사진과 자료를 나누는 검사 내용입니다.');
+    if(menu==='activities'){await page.locator('[name="activity_date"]').fill('2024-02-29');await page.locator('[name="portfolio_public"]').check();}
     if(menu==='gallery'){await page.locator('[name="gallery_topic"]').selectOption('__new__');await page.locator('[name="new_topic"]').fill('곤충');}
     if(menu==='gallery')await page.evaluate(()=>window.testRefreshDuringUpload=true);
     if(menu==='gallery')await page.locator('[name="files"]').setInputFiles([{name:'관찰.png',mimeType:'image/png',buffer:Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/l9sAAAAASUVORK5CYII=','base64')},{name:'활동지.pdf',mimeType:'application/pdf',buffer:Buffer.from('%PDF-1.4\n%%EOF')}]);
@@ -109,5 +110,31 @@ try{
   await page.screenshot({path:'content-mobile-check.png',fullPage:true});
   await page.evaluate(()=>{window.testStatus='pending';location.hash='#/gallery';});
   await page.getByRole('heading',{name:'승인된 회원과 함께 나눕니다.'}).waitFor();
+  await page.evaluate(()=>{
+    const base={category:'활동 기록',body:'포트폴리오 설명',created_at:new Date().toISOString(),published:true,portfolio_public:true,activity_date:'2026-01-10'};
+    window.testPosts.push({...base,id:'new-public',title:'새 공개 활동'},{...base,id:'private-activity',title:'비공개 활동',portfolio_public:false},{...base,id:'draft-activity',title:'미완료 활동',published:false});
+    window.testAttachments.push({id:'public-photo',post_id:'new-public',object_path:'portfolio/photo.png',filename:'활동.png',mime:'image/png',bytes:67},{id:'private-doc',post_id:'new-public',object_path:'portfolio/doc.pdf',filename:'비공개문서.pdf',mime:'application/pdf',bytes:20});
+    const bytes=Uint8Array.from(atob('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/l9sAAAAASUVORK5CYII='),c=>c.charCodeAt(0));window.testFiles['portfolio/photo.png']=new Blob([bytes],{type:'image/png'});
+    window.testAnonymous=true;window.testAuthChange('SIGNED_OUT');location.hash='#/about';
+  });
+  await page.locator('#activity-portfolio-list .content-thumbnail img').waitFor();
+  assert.equal(await page.locator('[data-portfolio-post]').count(),2);
+  assert.match(await page.locator('[data-portfolio-post]').first().textContent(),/새 공개 활동/);
+  assert.match(await page.locator('[data-portfolio-post]').last().textContent(),/2024.*2.*29/);
+  assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
+  await page.locator('.activity-portfolio').screenshot({path:'content-mobile-check.png'});
+  await page.locator('[data-portfolio-post="new-public"]').click();
+  await page.locator('.content-image').waitFor();
+  assert.equal(await page.locator('.member-post-copy').textContent(),'포트폴리오 설명');
+  assert.equal(await page.locator('.content-attachment').count(),1);
+  assert.equal(await page.locator('#content-edit').count(),0);
+  await page.locator('.modal-close').click();
+  await page.evaluate(()=>{window.testPosts.find(p=>p.id==='new-public').portfolio_public=false;location.hash='#/';});
+  await page.locator('.hero').waitFor();await page.evaluate(()=>location.hash='#/about');
+  await page.waitForFunction(()=>document.querySelectorAll('[data-portfolio-post]').length===1);
+  await page.evaluate(()=>{window.testPosts.forEach(p=>p.portfolio_public=false);location.hash='#/';});
+  await page.locator('.hero').waitFor();await page.evaluate(()=>location.hash='#/about');
+  await page.getByRole('heading',{name:'공개된 활동을 준비하고 있습니다.'}).waitFor();
+  console.log('PASS 비로그인 포트폴리오, 활동 날짜순, 사진·설명 표시, 문서·초안·비공개 제외, 공개 철회');
   assert.deepEqual(errors,[]);console.log('PASS 모바일 레이아웃, 승인 대기 접근 차단, 브라우저 오류 없음');
 }finally{if(browser)await browser.close();await new Promise(r=>server.close(r));}

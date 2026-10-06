@@ -14,6 +14,7 @@ alter table storage.objects enable row level security; grant usage on schema sto
 await db.exec(await readFile(new URL('./membership-schema.sql',import.meta.url),'utf8'));
 await db.exec(await readFile(new URL('./member-content.sql',import.meta.url),'utf8'));
 await db.exec(await readFile(new URL('./gallery-topics.sql',import.meta.url),'utf8'));
+await db.exec(await readFile(new URL('./activity-portfolio.sql',import.meta.url),'utf8'));
 for(const id of [alice,bob,pending]){await db.query('insert into auth.users(id,email_confirmed_at) values($1,now())',[id]);await db.query("insert into public.biosem_memberships(user_id,real_name,institution,phone,interest,consent_version,status) values($1,'검사 회원','검사 학교','01012345678','생물 수업 활용','2026-10-06',$2)",[id,id===pending?'pending':'approved']);}
 async function as(id,fn,role='authenticated'){await db.exec('set role '+role);await db.query("select set_config('request.jwt.claim.sub',$1,false)",[id||'']);try{return await fn();}finally{await db.exec('reset role');}}
 let count=0;async function check(name,fn){await fn();console.log('PASS '+name);count++;}
@@ -45,6 +46,33 @@ await check('author can publish and approved readers can read',async()=>{await a
 await check('published post rejects unexpected extra uploads',()=>as(alice,()=>assert.rejects(db.query("insert into storage.objects(bucket_id,name) values('biosem-files',$1)",[pathFor(7)]))));
 await check('pending readers cannot download attachments',()=>as(pending,async()=>assert.equal((await db.query('select * from storage.objects')).rows.length,0)));
 await check('anonymous cannot read member files',()=>as(null,async()=>assert.equal((await db.query('select * from storage.objects')).rows.length,0),'anon'));
+await check('activity date accepts leap day and rejects invalid dates',()=>as(alice,async()=>{await db.query("update public.biosem_posts set activity_date='2024-02-29' where id=$1",[post]);await assert.rejects(db.query("update public.biosem_posts set activity_date='2025-02-29' where id=$1",[post]));}));
+await check('portfolio remains private until author opts in',async()=>{
+  await as(null,async()=>assert.equal((await db.query('select title from public.biosem_posts')).rows.length,0),'anon');
+  await as(bob,async()=>assert.equal((await db.query('update public.biosem_posts set portfolio_public=true returning id')).rows.length,0));
+  await as(alice,()=>db.query('update public.biosem_posts set portfolio_public=true where id=$1',[post]));
+  await as(null,async()=>{assert.equal((await db.query('select title,activity_date from public.biosem_posts')).rows.length,1);assert.equal((await db.query('select id from public.biosem_attachments')).rows.length,5);assert.equal((await db.query('select * from storage.objects')).rows.length,1);},'anon');
+});
+await check('public portfolio never exposes documents to anonymous or pending users',async()=>{
+  await db.query("update public.biosem_attachments set mime='application/pdf' where object_path=$1",[pathFor(1)]);
+  for(const [id,role] of [[null,'anon'],[pending,'authenticated']])await as(id,async()=>{assert.equal((await db.query('select id from public.biosem_attachments')).rows.length,4);assert.equal((await db.query('select * from storage.objects')).rows.length,0);},role);
+  await db.query("update public.biosem_attachments set mime='image/jpeg' where object_path=$1",[pathFor(1)]);
+});
+await check('withdrawn portfolio and unpublished drafts disappear publicly',async()=>{
+  await as(alice,()=>db.query('update public.biosem_posts set published=false where id=$1',[post]));
+  await as(null,async()=>assert.equal((await db.query('select title from public.biosem_posts')).rows.length,0),'anon');
+  await as(alice,()=>db.query('update public.biosem_posts set published=true,portfolio_public=false where id=$1',[post]));
+  await as(null,async()=>{assert.equal((await db.query('select title from public.biosem_posts')).rows.length,0);assert.equal((await db.query('select * from storage.objects')).rows.length,0);},'anon');
+});
+await check('suspended authors cannot delete public portfolio image metadata',async()=>{
+  await as(alice,()=>db.query('update public.biosem_posts set portfolio_public=true where id=$1',[post]));
+  await db.query('insert into biosem_private.admins(user_id) values($1)',[bob]);
+  await as(bob,()=>db.query("select public.biosem_review_member($1,'approved','suspended','검사 정지')",[alice]));
+  await as(alice,async()=>assert.equal((await db.query('delete from public.biosem_attachments returning id')).rows.length,0));
+  await as(bob,()=>db.query("select public.biosem_review_member($1,'suspended','approved','검사 복구')",[alice]));
+  await db.query('delete from biosem_private.admins where user_id=$1',[bob]);
+  await as(alice,()=>db.query('update public.biosem_posts set portfolio_public=false where id=$1',[post]));
+});
 await check('other members cannot delete published posts or files',()=>as(bob,async()=>{assert.equal((await db.query('delete from public.biosem_posts returning id')).rows.length,0);assert.equal((await db.query('delete from storage.objects returning id')).rows.length,0);}));
 await check('suspension revokes file access',async()=>{await db.query('insert into biosem_private.admins(user_id) values($1)',[alice]);await as(alice,()=>db.query("select public.biosem_review_member($1,'approved','suspended','검사 정지')",[bob]));await as(bob,async()=>assert.equal((await db.query('select * from storage.objects')).rows.length,0));});
 await check('owner deletes files and own post',()=>as(alice,async()=>{assert.equal((await db.query('delete from storage.objects returning id')).rows.length,1);assert.equal((await db.query('delete from public.biosem_posts returning id')).rows.length,1);assert.equal((await db.query('select * from public.biosem_attachments')).rows.length,0);}));
