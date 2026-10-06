@@ -12,6 +12,7 @@
   const requestGate=core.createRequestGate();
   let adminPage=0,adminTotal=0,adminCounts={},searchTimer;
   const selector=s=>document.querySelector(s);
+  const content=window.createBioSEMContent({state,sync,open,notify,client:()=>client,navigate:async category=>{const destination=window.BioSEMContentCore.destination(category);if(destination==='community')pendingCategory=category;if(routeName()===destination){window.BioSEMUI.render();await route();}else location.hash='#/'+destination;},refresh:async()=>{window.BioSEMUI.render();await route();}});
   const routeName=()=>location.hash.replace(/^#\/?/,'').split('/')[0];
   const demo=()=>routeName()==='admin-preview'&&!state.configured;
   const date=value=>value&&!Number.isNaN(Date.parse(value))?new Intl.DateTimeFormat('ko-KR',{dateStyle:'medium'}).format(new Date(value)):'—';
@@ -28,13 +29,15 @@
       const {data,error}=await client.auth.getUser();
       if(version!==syncVersion)return;
       if(error&&error.name!=='AuthSessionMissingError')throw error;
-      state.user=data?.user||null;state.membership=null;state.isAdmin=false;state.error=null;
-      if(state.user){
-        const [membership,admin]=await Promise.all([client.from('biosem_memberships').select('*').eq('user_id',state.user.id).maybeSingle(),client.rpc('biosem_is_admin')]);
+      const nextUser=data?.user||null;let nextMembership=null,nextAdmin=false;
+      if(state.user?.id!==nextUser?.id){content.invalidateAuth();state.user=nextUser;state.membership=null;state.isAdmin=false;}
+      if(nextUser){
+        const [membership,admin]=await Promise.all([client.from('biosem_memberships').select('*').eq('user_id',nextUser.id).maybeSingle(),client.rpc('biosem_is_admin')]);
         if(version!==syncVersion)return;
         if(membership.error||admin.error)throw membership.error||admin.error;
-        state.membership=membership.data;state.isAdmin=admin.data===true;
+        nextMembership=membership.data;nextAdmin=admin.data===true;
       }
+      state.user=nextUser;state.membership=nextMembership;state.isAdmin=nextAdmin;state.error=null;
     }catch(error){if(version===syncVersion){state.membership=null;state.isAdmin=false;state.error=errorMessage(error);}}
     finally{if(version===syncVersion){state.ready=true;updateHeader();}}
   }
@@ -95,38 +98,31 @@
   function paintAdminList(){const list=adminRows;const target=selector('#admin-list');if(!target)return;target.innerHTML=list.length?'<div class="admin-row admin-table-header"><span>신청자</span><span>소속</span><span>관심 분야</span><span>상태</span><span>검토</span></div>'+list.map(x=>`<div class="admin-row"><div><strong>${e(x.real_name)}</strong><small>${date(x.submitted_at)}</small></div><span class="institution">${e(x.institution)}</span><span class="interest">${e(x.interest)}</span>${badge(x.status)}<button class="button small" data-review-id="${e(x.user_id)}">살펴보기</button></div>`).join(''):'<div class="empty-state compact"><h2>해당하는 신청이 없습니다.</h2><p>다른 상태를 선택하거나 검색어를 바꿔보세요.</p></div>';}
   function reviewMember(id){const row=adminRows.find(x=>x.user_id===id);if(!row)return;const actions={approved:row.status==='suspended'?'이용 복구':'회원 승인',rejected:'신청 반려',suspended:'이용 정지',pending:'다시 검토'};modal(`<div class="modal-inner"><div class="eyebrow">MEMBERSHIP REVIEW</div><div class="account-topline"><h2 id="modal-title">${e(row.real_name)} 선생님</h2>${badge(row.status)}</div><dl class="member-data"><div><dt>학교명</dt><dd>${e(row.institution)}</dd></div><div><dt>전화번호</dt><dd>${e(row.phone||'—')}</dd></div><div><dt>관심 분야</dt><dd>${e(row.interest)}</dd></div><div><dt>신청일</dt><dd>${date(row.submitted_at)}</dd></div></dl><div class="review-copy">${e(row.introduction||'추가 소개가 없습니다.')}</div>${row.review_note?`<p class="review-detail">이전 안내: ${e(row.review_note)}</p>`:''}<label class="form-field">신청자에게 전달할 안내<textarea id="review-note" maxlength="500" placeholder="반려·정지 시 사유를 반드시 입력해 주세요."></textarea></label><p class="review-detail">승인 전 소속과 교사 여부를 별도로 확인해 주세요. 이름과 소속 입력만으로 교사임이 인증되지는 않습니다.</p><div id="member-error" class="member-error" role="alert" tabindex="-1"></div><div class="review-buttons">${(core.transitions[row.status]||[]).map(status=>`<button class="button ${['rejected','suspended'].includes(status)?'danger':'primary'}" data-review-submit="${status}" data-review-member="${e(id)}" data-expected-status="${e(row.status)}">${actions[status]}</button>`).join('')}</div><p class="preview-note">${demo()?'예시 인물의 상태만 변경됩니다.':'처리 결과는 신청자에게 표시되며 운영진 검토 기록에 남습니다.'}</p></div>`);}
   async function submitReview(button){const status=button.dataset.reviewSubmit,note=selector('#review-note').value.trim(),id=button.dataset.reviewMember,old=button.dataset.expectedStatus;if(['rejected','suspended'].includes(status)&&note.length<2){showError('반려 또는 정지 사유를 2자 이상 입력해 주세요.');return;}const buttons=[...document.querySelectorAll('[data-review-submit]')];buttons.forEach(b=>b.disabled=true);try{if(demo()){const row=demoRows.find(x=>x.user_id===id);if(!row||row.status!==old)throw {code:'40001'};row.status=status;row.review_note=note;}else{await sync();if(!state.isAdmin||state.error)throw {code:'42501'};const result=await client.rpc('biosem_review_member',{p_user_id:id,p_expected_status:old,p_status:status,p_note:note});if(result.error)throw result.error;}window.BioSEMUI.closeModal();notify(demo()?'예시 회원 상태를 변경했습니다.':`${core.labels[status]} 처리했습니다.`);await showAdmin();}catch(error){showError(errorMessage(error));buttons.forEach(b=>b.disabled=false);}}
-  async function composer(category){await sync();if(!core.canParticipate(state)){await open(state.user?'account':'login');return;}modal(`<div class="modal-inner member-post-form"><div class="eyebrow">SHARE YOUR DISCOVERY</div><h2 id="modal-title">${category==='교육 자료'?'교육 자료 나누기':'이야기 나누기'}</h2><p>관찰 경험과 수업 아이디어를 동료 교사와 나눠보세요.</p><form id="member-post-form"><label class="form-field">분류<select name="category">${['자유 나눔','질문과 답변','교육 자료'].map(c=>`<option ${c===category?'selected':''}>${c}</option>`).join('')}</select></label><label class="form-field">제목<input name="title" required minlength="2" maxlength="120" placeholder="나누고 싶은 이야기의 제목"></label><label class="form-field">내용<textarea name="body" required minlength="2" maxlength="10000" placeholder="관찰한 내용과 질문을 적어주세요. 학생 개인정보는 포함하지 말아 주세요."></textarea></label><p class="preview-note">승인된 회원에게 공개됩니다. 자료는 본문으로 등록하며 파일 첨부는 아직 지원하지 않습니다.</p><div id="member-error" class="member-error" role="alert" tabindex="-1"></div><button class="button primary wide" type="submit">게시하기</button></form></div>`);}
-  async function loadPosts(category,target){
-    const version=routeVersion,key=target.id==='community-results'?'community-board':'resource-board';
-    const current=requestGate.capture(key);
-    const active=()=>current()&&version===routeVersion&&target.isConnected&&(key!=='community-board'||selector('[data-filter-group="community"] .active')?.dataset.filter===category);
-    await sync();if(!active())return;
-    if(!core.canParticipate(state)){target.innerHTML='<div class="empty-state compact"><div class="empty-symbol">◎</div><h2>승인된 회원과 함께 나눕니다.</h2><p>'+e(state.error||'회원 글과 수업 자료는 운영진 승인 후 볼 수 있습니다.')+'</p><button class="button primary" data-member-action="'+(state.user?'account':'login')+'">'+(state.user?'내 회원 상태 확인':'로그인')+'</button></div>';return;}
-    const userId=state.user.id;
-    target.innerHTML='<div class="member-loading">회원 글을 불러오고 있습니다.</div>';
-    const r=await client.from('biosem_posts').select('id,title,category,created_at').eq('category',category).order('created_at',{ascending:false}).limit(50);
-    if(!active()||state.user?.id!==userId||!core.canParticipate(state))return;
-    if(r.error){target.innerHTML='<div class="member-error">'+e(errorMessage(r.error))+'</div>';return;}
-    target.innerHTML=r.data.length?r.data.map(p=>'<button class="community-item" data-member-post="'+e(p.id)+'"><span class="community-tag">'+e(p.category)+'</span><span class="post-title">'+e(p.title)+'</span><span class="post-meta">'+date(p.created_at)+'</span></button>').join(''):'<div class="empty-state compact"><h2>첫 번째 기록을 남겨보세요.</h2><p>아직 등록된 글이 없습니다.</p></div>';
+  async function composer(category){await content.compose(category);}
+  async function loadPosts(category,target){await content.load(category,target);}
+  async function showMemberPost(id){await content.show(id);}
+  async function route(){
+    requestGate.invalidateAll();content.invalidate();routeVersion++;
+    const name=routeName();
+    if(name==='account')await showAccount();
+    else if(name==='admin'||name==='admin-preview')await showAdmin();
+    else if(name==='community'&&pendingCategory){const category=pendingCategory;pendingCategory=null;const tab=[...document.querySelectorAll('[data-filter-group="community"] button')].find(b=>b.dataset.filter===category);if(tab)tab.click();}
+    else if(['resources','activities','gallery'].includes(name)){
+      const category={resources:'교육 자료',activities:'활동 기록',gallery:'SEM 갤러리'}[name];
+      const section=selector('.page-body');if(!section)return;
+      let block=selector('.member-private-board');
+      if(!block){block=document.createElement('section');block.className='member-private-board';block.innerHTML='<div class="community-top"><h2>회원 '+e(category)+'</h2><button class="button small primary" data-content-category="'+e(category)+'">글·사진·자료 등록</button></div><div data-content-board id="member-'+name+'-list"></div>';section.prepend(block);}
+      await loadPosts(category,block.querySelector('[data-content-board]'));
+    }
   }
-  async function showMemberPost(id){
-    const current=requestGate.capture('private-post'),version=routeVersion,revision=selector('#modal').dataset.revision;
-    await sync();if(!current()||version!==routeVersion)return;
-    if(!core.canParticipate(state)){await open(state.user?'account':'login');return;}
-    const userId=state.user.id;
-    const r=await client.from('biosem_posts').select('*').eq('id',id).maybeSingle();
-    if(!current()||version!==routeVersion||state.user?.id!==userId||!core.canParticipate(state)||selector('#modal').dataset.revision!==revision)return;
-    if(r.error||!r.data){notify('글을 확인할 수 없습니다. 회원 상태와 연결을 확인해 주세요.');return;}
-    modal('<article class="article-content"><div class="eyebrow">'+e(r.data.category)+'</div><h2 id="modal-title">'+e(r.data.title)+'</h2><p class="review-detail">'+date(r.data.created_at)+' · 승인 회원 공개</p><div class="member-post-copy">'+e(r.data.body)+'</div></article>','article-modal');
-  }
-  async function route(){requestGate.invalidateAll();routeVersion++;const name=routeName();if(name==='account')await showAccount();else if(name==='admin'||name==='admin-preview')await showAdmin();else if(name==='community'&&pendingCategory){const category=pendingCategory;pendingCategory=null;const tab=[...document.querySelectorAll('[data-filter-group="community"] button')].find(b=>b.dataset.filter===category);if(tab)tab.click();}else if(name==='resources'){const section=selector('.page-body');if(selector('.member-private-board'))return;const block=document.createElement('div');block.className='member-private-board';block.innerHTML='<div class="community-top"><h2>회원 수업 자료</h2><button class="button small primary" data-member-action="resource-write">자료 글 등록</button></div><div id="member-resource-list"></div>';section.append(block);await loadPosts('교육 자료',selector('#member-resource-list'));}}
   document.addEventListener('click',async event=>{const button=event.target.closest('button');if(!button)return;
+    if(button.dataset.contentCategory){await composer(button.dataset.contentCategory);return;}
     if(button.dataset.provider){button.disabled=true;try{const provider=button.dataset.provider;if(!client||!config.enabledProviders.includes(provider))return;const {error}=await client.auth.signInWithOAuth({provider,options:{redirectTo:location.origin+location.pathname}});if(error)throw error;}catch(error){showError(errorMessage(error));button.disabled=false;}return;}
     if(button.dataset.reviewId){reviewMember(button.dataset.reviewId);return;}
     if(button.dataset.reviewSubmit){await submitReview(button);return;}
     if(button.dataset.adminFilter){adminFilter=button.dataset.adminFilter;adminPage=0;document.querySelectorAll('[data-admin-filter]').forEach(b=>{b.classList.toggle('active',b===button);b.setAttribute('aria-pressed',String(b===button));});await loadAdminRows();return;}if(button.dataset.adminPage){adminPage+=button.dataset.adminPage==='next'?1:-1;await loadAdminRows();return;}
     if(button.dataset.memberPost){await showMemberPost(button.dataset.memberPost);return;}
-    if(button.dataset.filter&&button.closest('[data-filter-group="community"]')){requestGate.invalidate('community-board');if(['자유 나눔','질문과 답변'].includes(button.dataset.filter)){postCategory=button.dataset.filter;await loadPosts(postCategory,selector('#community-results'));}return;}
+    if(button.dataset.filter&&button.closest('[data-filter-group="community"]')){content.invalidate();requestGate.invalidate('community-board');if(['자유 나눔','질문과 답변'].includes(button.dataset.filter)){postCategory=button.dataset.filter;await loadPosts(postCategory,selector('#community-results'));}return;}
     const action=button.dataset.memberAction;if(!action)return;
     if(action==='login')login();if(action==='account')await open('account');if(action==='join-info')await open('join');
     if(action==='begin-application'){if(!state.configured)window.BioSEMUI.openPreviewAuth('form');else{await sync();if(state.user)showApplication();else login();}}
@@ -138,6 +134,6 @@
   document.addEventListener('submit',async event=>{const form=event.target;if(!['membership-application','member-post-form'].includes(form.id))return;event.preventDefault();const button=form.querySelector('[type="submit"]');button.disabled=true;try{await sync();if(!state.user||state.error)throw {code:'42501'};const data=new FormData(form);let r;if(form.id==='membership-application'){if(!config.acceptingApplications||!validPrivacyUrl())throw {code:'42501'};const fields=core.validateApplication({...Object.fromEntries(data),consent:data.get('consent')==='on'});r=await client.from('biosem_memberships').insert({...fields,user_id:state.user.id}).select('status').single();}else{if(!core.canParticipate(state))throw {code:'42501'};r=await client.from('biosem_posts').insert({author_id:state.user.id,category:data.get('category'),title:String(data.get('title')).trim(),body:String(data.get('body')).trim()}).select('id').single();}if(r.error)throw r.error;const application=form.id==='membership-application';form.reset();window.BioSEMUI.closeModal();notify(application?'신청을 접수했습니다. 운영진 확인을 기다려 주세요.':'글을 게시했습니다.');if(application){location.hash='#/account';await showAccount();}else{const destination=data.get('category')==='교육 자료'?'resources':'community';if(destination==='community')pendingCategory=String(data.get('category'));if(routeName()===destination){window.BioSEMUI.render();await route();}else location.hash='#/'+destination;}}catch(error){showError(error instanceof Error&&!error.code&&/^이름|^소속|^전화번호|^관심|^참여|^개인정보/.test(error.message)?error.message:errorMessage(error));if(button.isConnected)button.disabled=false;}});
   window.BioSEMAuth={open};
   window.addEventListener('hashchange',route);
-  async function initialize(){if(state.configured){try{client=window.supabase.createClient(config.supabaseUrl,config.supabasePublishableKey,{auth:{flowType:'pkce',persistSession:true,autoRefreshToken:true,detectSessionInUrl:true}});client.auth.onAuthStateChange((event)=>{if(event==='SIGNED_OUT'){requestGate.invalidateAll();syncVersion++;state.user=null;state.membership=null;state.isAdmin=false;adminRows=[];window.BioSEMUI.closeModal();updateHeader();const board=selector('#community-results');if(board&&selector('[data-filter-group="community"] .active')?.dataset.filter!=='공지사항')board.innerHTML='';const resources=selector('#member-resource-list');if(resources)resources.innerHTML='';}setTimeout(async()=>{await sync();if(['account','admin'].includes(routeName()))await route();const board=selector('#community-results');const category=selector('[data-filter-group="community"] .active')?.dataset.filter;if(board&&['자유 나눔','질문과 답변'].includes(category))await loadPosts(category,board);const resources=selector('#member-resource-list');if(resources)await loadPosts('교육 자료',resources);},0);});}catch{state.error='인증 연결을 준비하지 못했습니다.';}}await sync();updateHeader();await route();}
+  async function initialize(){if(state.configured){try{client=window.supabase.createClient(config.supabaseUrl,config.supabasePublishableKey,{auth:{flowType:'pkce',persistSession:true,autoRefreshToken:true,detectSessionInUrl:true}});client.auth.onAuthStateChange((event)=>{if(event==='SIGNED_OUT'){content.invalidateAuth();document.querySelectorAll('[data-content-board]').forEach(board=>board.innerHTML='');requestGate.invalidateAll();syncVersion++;state.user=null;state.membership=null;state.isAdmin=false;adminRows=[];window.BioSEMUI.closeModal();updateHeader();const board=selector('#community-results');if(board&&selector('[data-filter-group="community"] .active')?.dataset.filter!=='공지사항')board.innerHTML='';const resources=selector('#member-resource-list');if(resources)resources.innerHTML='';}setTimeout(async()=>{await sync();if(['account','admin','activities','gallery','resources'].includes(routeName()))await route();const board=selector('#community-results');const category=selector('[data-filter-group="community"] .active')?.dataset.filter;if(board&&['자유 나눔','질문과 답변'].includes(category))await loadPosts(category,board);const resources=selector('#member-resource-list');if(resources)await loadPosts('교육 자료',resources);},0);});}catch{state.error='인증 연결을 준비하지 못했습니다.';}}await sync();updateHeader();await route();}
   initialize();
 })();

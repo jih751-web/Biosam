@@ -8,3 +8,5 @@ qa/
 .env.*
 !.env.example
 .openai/
+
+content-mobile-check.png

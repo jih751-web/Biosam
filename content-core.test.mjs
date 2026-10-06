@@ -1,0 +1,11 @@
+import assert from 'node:assert/strict';
+import core from './dist/content-core.js';
+const file=(name,size=12)=>({name,size});
+assert.equal(core.validateFiles([file('사진.JPG')])[0].mime,'image/jpeg');
+assert.equal(core.validateFiles([file('수업.hwpx')])[0].extension,'hwpx');
+for(const files of [[file('x.svg')],[file('x.html')],[file('x.exe')],[file('x.pdf',0)],[file('x.pdf',10485761)],Array.from({length:6},()=>file('x.pdf'))])assert.throws(()=>core.validateFiles(files));
+assert.equal(core.validatePost({category:'활동 기록',title:' 기록 ',body:' 내용 '}).title,'기록');
+assert.throws(()=>core.validatePost({category:'공지사항',title:'제목',body:'내용'}));
+assert.throws(()=>core.validatePost({category:'SEM 갤러리',title:' ',body:'내용'}));
+assert.equal(core.destination('SEM 갤러리'),'gallery');
+console.log('PASS attachment limits, file types, and menu validation');

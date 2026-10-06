@@ -8,3 +8,7 @@ qa
 membership-schema.sql
 membership-plan.md
 server.mjs
+
+member-content.sql
+content-browser-check.mjs
+content-mobile-check.png
