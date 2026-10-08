@@ -11,6 +11,7 @@ create function auth.jwt() returns jsonb language sql stable as $$select coalesc
 grant usage on schema auth to authenticated,anon; grant execute on function auth.uid(),auth.jwt() to authenticated,anon;`);
 for(const [name,id] of Object.entries(ids))await db.query('insert into auth.users values($1,$2,false)',[id,name==='unverified'?null:new Date().toISOString()]);
 await db.exec(await readFile(new URL('./membership-schema.sql',import.meta.url),'utf8'));
+await db.exec(await readFile(new URL('./member-directory.sql',import.meta.url),'utf8'));
 await db.query('insert into biosem_private.admins(user_id) values ($1)',[ids.admin]);
 let passed=0;
 async function as(id,fn,role='authenticated'){await db.exec(`set role ${role}`);await db.query("select set_config('request.jwt.claim.sub',$1,false),set_config('request.jwt.claims',$2,false)",[id||'',JSON.stringify({sub:id,is_anonymous:false})]);try{return await fn();}finally{await db.exec('reset role');}}
@@ -35,12 +36,23 @@ await check('pending member cannot write or read member posts',()=>as(ids.alice,
 await check('admin can list applications and approve',()=>as(ids.admin,async()=>{assert.equal((await db.query('select * from public.biosem_memberships')).rows.length,2);await review(ids.alice,'pending','approved');const r=await db.query('select status,reviewed_by from public.biosem_memberships where user_id=$1',[ids.alice]);assert.deepEqual(r.rows[0],{status:'approved',reviewed_by:ids.admin});}));
 await check('stale review cannot overwrite a newer decision',()=>as(ids.admin,()=>assert.rejects(review(ids.alice,'pending','rejected','다시 확인'))));
 await check('approved member can create and read posts',()=>as(ids.alice,async()=>{await write(ids.alice);assert.equal((await db.query('select * from public.biosem_posts')).rows.length,1);}));
+await check('approved directory lists approved profiles without private fields',()=>as(ids.alice,async()=>{const {rows}=await db.query('select public.biosem_member_directory(0) as result');assert.equal(rows[0].result.total,1);assert.deepEqual(Object.keys(rows[0].result.rows[0]).sort(),['institution','interest','introduction','real_name']);}));
+await check('directory rejects pending and anonymous viewers',async()=>{for(const [id,role] of [[ids.bob,'authenticated'],[null,'anon'],[ids.admin,'authenticated']])await as(id,()=>assert.rejects(db.query('select public.biosem_member_directory(0)'),{code:'42501'}),role);});
 await check('author spoofing is rejected',()=>as(ids.alice,()=>assert.rejects(write(ids.bob))));
 await check('pending member cannot read approved member posts',()=>as(ids.bob,async()=>assert.equal((await db.query('select * from public.biosem_posts')).rows.length,0)));
 await check('rejection requires a review note',()=>as(ids.admin,()=>assert.rejects(review(ids.bob,'pending','rejected'))));
 await check('admin can reject with note and audit is immutable',()=>as(ids.admin,async()=>{await review(ids.bob,'pending','rejected','소속 확인 필요');assert.equal((await db.query('select * from public.biosem_review_log')).rows.length,2);await assert.rejects(db.query('delete from public.biosem_review_log'));}));
 await check('suspension immediately revokes access',async()=>{await as(ids.admin,()=>review(ids.alice,'approved','suspended','운영진 확인 중'));await as(ids.alice,async()=>{await assert.rejects(write(ids.alice));assert.equal((await db.query('select * from public.biosem_posts')).rows.length,0);});});
 await check('admin restores suspended member',()=>as(ids.admin,()=>review(ids.alice,'suspended','approved','확인 완료')));
+await check('directory revokes suspended access',async()=>{await as(ids.admin,()=>review(ids.alice,'approved','suspended','검사 중'));await as(ids.alice,()=>assert.rejects(db.query('select public.biosem_member_directory(0)'),{code:'42501'}));await as(ids.admin,()=>review(ids.alice,'suspended','approved'));});
+await check('rejected member cannot read directory',()=>as(ids.bob,()=>assert.rejects(db.query('select public.biosem_member_directory(0)'),{code:'42501'})));
+await check('directory validates page and supports all approved members',async()=>{
+  await db.exec(`insert into auth.users(id,email_confirmed_at) select ('40000000-0000-4000-8000-'||lpad(n::text,12,'0'))::uuid,now() from generate_series(1,25) n;
+    insert into public.biosem_memberships(user_id,real_name,institution,phone,interest,consent_version,status)
+    select id,'구성원 '||id::text,'검사 학교','01012345678','생물 수업 활용','2026-10-06','approved' from auth.users where id::text like '40000000-%';`);
+  await as(ids.alice,async()=>{const first=(await db.query('select public.biosem_member_directory(0) as result')).rows[0].result;const second=(await db.query('select public.biosem_member_directory(1) as result')).rows[0].result;assert.equal(first.total,26);assert.equal(first.rows.length,24);assert.equal(second.rows.length,2);assert.equal(new Set([...first.rows,...second.rows].map(row=>row.real_name)).size,26);await assert.rejects(db.query('select public.biosem_member_directory(-1)'),{code:'22023'});});
+  await db.exec("delete from auth.users where id::text like '40000000-%'");
+});
 await check('ordinary members cannot read review audit',()=>as(ids.alice,async()=>assert.equal((await db.query('select * from public.biosem_review_log')).rows.length,0)));
 await check('overlong or blank content rejected by database',()=>as(ids.alice,async()=>{await assert.rejects(write(ids.alice,'   '));await assert.rejects(write(ids.alice,'가'.repeat(121)));}));
 await check('admin cannot change application ownership or timestamps',()=>as(ids.admin,async()=>{await assert.rejects(db.query('update public.biosem_memberships set user_id=$1 where user_id=$2',[ids.unverified,ids.alice]));await assert.rejects(db.query("update public.biosem_memberships set submitted_at=now() where user_id=$1",[ids.alice]));}));
